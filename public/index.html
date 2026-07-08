@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>3D Kuantum Not Evreni</title>
+<script type="importmap">{"imports":{"three":"/vendor/three/build/three.module.js"}}</script>
+<link rel="modulepreload" href="/vendor/three/build/three.module.js">
+<link rel="modulepreload" href="js/main.js">
+<link rel="modulepreload" href="js/three.js">
+<link rel="modulepreload" href="js/config.js">
+<link rel="modulepreload" href="js/DataManager.js">
+<link rel="modulepreload" href="js/Engine3D.js">
+<link rel="modulepreload" href="js/Controls.js">
+<link rel="modulepreload" href="js/UIManager.js">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div id="hud" class="panel">
+    <h2>3D Kuantum Not Evreni</h2>
+    <p><span class="hl">🎯 Odak (varsayılan):</span> atoma tıkla → yumuşak yaklaş, sürükle → yörünge ·
+       <span class="hl">🚀 Uçuş:</span> WASD + Shift ·
+       atomun üzerine gel → <span class="hl">içerik kartı</span> ·
+       <span style="color:var(--green)">boş yuva</span> → not doğur ·
+       <span style="color:#a99bff">mor portal</span> → ışınlan · <span class="hl">Ctrl+Z</span> geri al</p>
+    <div id="modebar">
+        <button id="mode-flight">🚀 UÇUŞ MODU</button>
+        <button id="mode-focus">🎯 ODAK MODU</button>
+    </div>
+    <input id="search-in" placeholder="🔍 Evrende ara... (eşleşen atomlar parlar)">
+    <div id="search-res"></div>
+    <div class="row">
+        <select id="nb-select"></select>
+        <button id="nb-rename" title="Defteri yeniden adlandır">✎</button>
+        <button id="nb-new">+ DEFTER</button>
+    </div>
+    <div class="row">
+        <span id="user-chip" style="display:none;color:var(--cyan);font-size:10px"></span>
+        <button id="btn-logout" style="display:none;padding:3px 8px;font-size:10px" class="ghost">ÇIKIŞ</button>
+        <span id="save-dot">○ bağlanıyor…</span>
+        <span style="margin-left:auto;font-size:10px;color:var(--line)">derinlik</span>
+        <select id="depth-sel"><option value="1">1</option><option value="2" selected>2</option><option value="3">3</option></select>
+    </div>
+</div>
+
+<div id="note" class="panel">
+    <button id="note-close">✕</button>
+    <div id="addr"></div>
+    <input id="title-in" maxlength="80" placeholder="Başlık">
+    <div id="fmt">
+        <button class="b1" data-tag="H1">Başlık</button>
+        <button class="b2" data-tag="H2">Alt Başlık</button>
+        <button class="b3" data-tag="P">Gövde</button>
+    </div>
+    <div id="body-ed" contenteditable="true"></div>
+    <div id="attach-btns">
+        <button id="btn-att-img">📷 Görsel Ekle</button>
+        <button id="btn-att-doc">📄 Belge Ekle</button>
+    </div>
+    <div class="att-list" id="img-list"></div>
+    <div class="att-list" id="doc-list"></div>
+    <div id="link-btns">
+        <button id="link-start">🕳 Kuantum Bağlantısı Kur (Solucan Deliği)</button>
+    </div>
+    <div id="sublist"></div>
+</div>
+
+<div id="stats" class="panel">
+    <p>Aktif eleman: <span class="hl" id="st-active">0</span></p>
+    <p>Draw call: <span class="hl" id="st-calls">0</span></p>
+    <p>Bellekteki not: <span class="hl" id="st-total">0</span></p>
+    <p>Derinlik: <span class="hl" id="st-depth">0</span> · Hız: <span class="hl" id="st-speed">0</span></p>
+</div>
+
+<div class="btnrow">
+    <button id="btn-home">⌂ ANA MERKEZ</button>
+    <button id="btn-up" class="up">↑ ÜST</button>
+    <button id="btn-tunnel" class="up">⏳ ZAMAN TÜNELİ</button>
+    <button id="btn-share" class="share">🔗 PAYLAŞ</button>
+    <button id="btn-twod" class="ghost">🗺 2B</button>
+    <button id="btn-topdown" class="ghost">📸 ÜSTTEN PNG</button>
+    <button id="btn-export" class="ghost">↓ JSON</button>
+    <button id="btn-import" class="ghost">↑ JSON</button>
+</div>
+
+<!-- 2B indirgeme -->
+<div id="twod">
+    <canvas id="twod-cv"></canvas>
+    <div id="twod-bar">
+        <span id="twod-title"></span>
+        <button id="twod-up" class="up">↑ ÜST</button>
+        <button id="twod-open3d">3B'DE AÇ</button>
+        <button id="twod-png" class="ghost">PNG İNDİR</button>
+        <button id="twod-close" class="ghost">✕ KAPAT</button>
+    </div>
+</div>
+
+<!-- Zaman tüneli -->
+<div id="tunnel">
+    <div class="card panel">
+        <h2>⏳ Zaman Tüneli</h2>
+        <p>Evrenin geçmiş versiyonlarına dön. Otomatik anlık görüntü: 10 dakikada bir (sunucu).
+           Oturum içinde <span class="hl">Ctrl+Z / Ctrl+Y</span> her zaman çalışır.</p>
+        <div id="tunnel-list"></div>
+        <div class="row">
+            <button id="tunnel-snap">📌 ŞİMDİYİ VERSİYONLA</button>
+            <button id="tunnel-undo" class="ghost">↶ GERİ</button>
+            <button id="tunnel-redo" class="ghost">↷ İLERİ</button>
+            <button id="tunnel-close" class="ghost">✕</button>
+        </div>
+    </div>
+</div>
+
+<div id="link-hint"></div>
+
+<!-- Kimlik: giriş / kayıt / hesapsız (yerel) devam -->
+<div id="auth">
+    <div class="card panel">
+        <h2>🔐 Not Evrenin Sana Ait</h2>
+        <p>Verilerin hesabına kilitlenir; başka hiçbir kullanıcı defterlerine ve dosyalarına erişemez.</p>
+        <div id="auth-tabs">
+            <button id="auth-tab-login" class="on">GİRİŞ</button>
+            <button id="auth-tab-register">KAYIT OL</button>
+        </div>
+        <input id="auth-user" maxlength="32" placeholder="kullanıcı adı" autocomplete="username">
+        <input id="auth-pass" type="password" maxlength="256" placeholder="parola (en az 10 karakter)" autocomplete="current-password">
+        <p id="auth-err"></p>
+        <button id="auth-submit">GİRİŞ YAP</button>
+        <button id="auth-local" class="ghost">HESAPSIZ DEVAM ET (yalnız bu tarayıcıda, IndexedDB)</button>
+    </div>
+</div>
+
+<!-- Onboarding: engelleyici modal yerine tek satır değer önerisi + uzamsal çağrı -->
+<div id="onboard">Notlarını <b>3B fraktal bir evrende</b> düzenle —
+    <span style="color:var(--green)">yeşil parlayan yuvaya tıkla</span>, ilk notun doğsun.</div>
+<div id="slot-callout">⤶ buraya tıkla — ilk notun</div>
+
+<input type="file" id="file-in" accept=".json" style="display:none">
+<input type="file" id="img-in" accept="image/*" multiple style="display:none">
+<input type="file" id="doc-in" multiple style="display:none">
+<div id="subcard">
+    <div class="sc-head"><span class="sc-addr"></span><span class="sc-title"></span></div>
+    <div class="sc-sec" id="sc-notes"></div>
+    <div class="sc-sec" id="sc-docs"></div>
+    <div class="sc-imgs" id="sc-imgs"></div>
+    <div class="sc-row">
+        <button id="sc-go">🎯 YAKLAŞ</button>
+        <button id="sc-sel" class="ghost">✎ SEÇ</button>
+    </div>
+</div>
+<div id="quick">
+    <div class="q-addr"></div>
+    <input id="q-title" maxlength="80" placeholder="Başlık ekle...">
+    <div class="q-row">
+        <button id="q-note">📝 Not</button>
+        <button id="q-img">📷 Görsel</button>
+        <button id="q-doc">📄 Belge</button>
+    </div>
+    <div id="q-lists">
+        <div class="sc-sec" id="q-notes"></div>
+        <div class="sc-sec" id="q-docs"></div>
+        <div class="sc-imgs" id="q-imgs"></div>
+    </div>
+</div>
+<div id="tip"></div>
+<div id="toast"></div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

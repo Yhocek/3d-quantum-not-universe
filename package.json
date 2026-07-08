@@ -1,0 +1,12 @@
+{
+  "name": "not-evreni",
+  "version": "1.0.0",
+  "description": "3D Kuantum Not Evreni — fraktal yapılı interaktif bilgi panosu (frontend + sıfır bağımlılıklı Node.js backend)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": { "node": ">=16" },
+  "license": "MIT",
+  "keywords": ["threejs", "3d", "notes", "fractal", "knowledge-graph", "instanced-mesh"]
+}
