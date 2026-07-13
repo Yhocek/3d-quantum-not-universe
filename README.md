@@ -30,7 +30,8 @@
 | 💾 **Auto-Save** | Debounced sync to server (~1s); IndexedDB offline mirror for zero data loss |
 | 🔍 **Global Search** | Matching atoms glow white in 3D space; click result → fly to node |
 | ⏳ **Time Tunnel** | Version history with auto-snapshots (10min) + manual saves; session Ctrl+Z/Y |
-| 🗺️ **2D Reduction** | Radial tree map via pure Canvas 2D — GPU-free overview |
+| 🗺️ **2D Reduction** | Nested cluster–subcluster map via pure Canvas 2D — each note is a circle, children live inside it |
+| 🤖 **MCP Server** | Zero-dependency MCP bridge (`mcp-server.js`) — Claude connects to your universe: read, search, add, update notes |
 | 📸 **PNG Export** | Top-down orthographic 3D capture + 2D map download |
 | 🔄 **JSON Import/Export** | Portable standard schema (`id/label/type/size/children`) |
 | 🌐 **Shareable Links** | Share subtrees via short `?s=<code>` URLs |
@@ -139,6 +140,8 @@ GET    /api/health                                    → { ok, name, auth }
 
 ```
 ├── server.js              # Zero-dependency Node.js backend + static file server
+├── mcp-server.js          # MCP bridge (stdio) — lets Claude read & write your notes
+├── .mcp.json              # Auto-discovered MCP config for Claude Code
 ├── verify.mjs             # Cross-module import/export + HTML ID consistency checker
 ├── package.json
 ├── .gitignore
@@ -203,6 +206,38 @@ The 54 slots are distributed across 7 latitude rings:
 | `TLS_KEY` | — | Path to TLS private key (enables HTTPS) |
 | `TLS_CERT` | — | Path to TLS certificate |
 | `COOKIE_SECURE` | — | Set to `1` for Secure cookies behind reverse proxy |
+
+---
+
+## 🤖 MCP — Connect Claude to Your Universe
+
+`mcp-server.js` is a zero-dependency [MCP](https://modelcontextprotocol.io) server (stdio transport) that bridges Claude to the running site. Claude can list notebooks, read the tree outline, read/search notes, add/update/delete notes, create notebooks, and mint share links — all through your account, with the same auth + CSRF protections as the browser.
+
+```bash
+# 1. Start the site
+node server.js
+
+# 2. Register the MCP server with Claude Code
+claude mcp add not-evreni \
+  -e NOTE_BASE_URL=http://localhost:3000 \
+  -e NOTE_USER=your-username \
+  -e NOTE_PASS=your-password \
+  -- node /path/to/3d-quantum-not-universe/mcp-server.js
+```
+
+Working inside this repo? Claude Code auto-discovers `.mcp.json` — just export `NOTE_USER` / `NOTE_PASS` in your environment. Set `NOTE_REGISTER=1` to auto-create the account on first run.
+
+| Tool | Description |
+|---|---|
+| `list_notebooks` | Notebooks with id, name, last update |
+| `get_outline` | Addressed text outline of a (sub)tree — addresses like `0.12.3` |
+| `read_note` | Title, body text/html, attachments, children of a note |
+| `add_note` | New note under a parent (first free slot, or explicit `slot` 1-54) |
+| `update_note` | Change title and/or body (whitelist-sanitized HTML) |
+| `delete_note` | Remove a note and its subtree (root is protected) |
+| `search_notes` | Full-text search over titles + bodies with snippets |
+| `create_notebook` | New empty notebook |
+| `create_share_link` | Public share URL for a subtree |
 
 ---
 

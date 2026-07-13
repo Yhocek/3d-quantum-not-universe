@@ -745,7 +745,10 @@ async function embedAssets(std){
     for(const c of (std.children||[])) await embedAssets(c);
 }
 
-/* ===================================================== 2B RADIAL İNDİRGEME */
+/* ============================================ 2B KÜME–ALT KÜME İNDİRGEMESİ ==
+   Her not bir küme dairesidir; alt notları dairenin İÇİNDE alt küme daireleri
+   olarak yerleşir (iç içe kümeler). Tıklanan küme yeniden köklendirir.
+   ========================================================================== */
 let twodRoot=null, twodPlaced=[];
 function bindTwod(){
     $('twod-close').onclick=()=>$('twod').classList.remove('open');
@@ -758,16 +761,15 @@ function bindTwod(){
         const a=document.createElement('a');
         a.href=$('twod-cv').toDataURL('image/png');
         a.download='not-evreni-2d-'+D.address(twodRoot).replace(/\./g,'-')+'.png';
-        a.click(); toast('2B harita PNG indirildi.');
+        a.click(); toast('2B küme haritası PNG indirildi.');
     };
     $('twod-cv').addEventListener('click', e=>{
         const r=$('twod-cv').getBoundingClientRect(), x=e.clientX-r.left, y=e.clientY-r.top;
-        for(const p of twodPlaced){
-            if(Math.hypot(x-p.x,y-p.y)<p.r+6){
-                if(p.node!==twodRoot){ twodRoot=p.node; State.selNode=p.node; drawTwod(); }
-                return;
-            }
-        }
+        /* iç içe daireler: noktayı kapsayan EN KÜÇÜK (en derin) küme seçilir */
+        let best=null;
+        for(const p of twodPlaced)
+            if(Math.hypot(x-p.x,y-p.y)<=p.r && (!best || p.r<best.r)) best=p;
+        if(best && best.node!==twodRoot){ twodRoot=best.node; State.selNode=best.node; drawTwod(); }
     });
 }
 function openTwod(){ twodRoot=State.openNode; $('twod').classList.add('open'); drawTwod(); }
@@ -778,10 +780,10 @@ function drawTwod(){
     tcv.style.width=innerWidth+'px'; tcv.style.height=innerHeight+'px';
     tctx.setTransform(dpr,0,0,dpr,0,0);
     tctx.fillStyle='#020208'; tctx.fillRect(0,0,innerWidth,innerHeight);
-    $('twod-title').textContent='🗺 '+D.address(twodRoot)+' — '+(twodRoot.title||'isimsiz')+' · düğüme tıkla: yeniden köklendir';
+    $('twod-title').textContent='🗺 '+D.address(twodRoot)+' — '+(twodRoot.title||'isimsiz')+' · kümeye tıkla: yeniden köklendir';
 
     const cx=innerWidth/2, cy=innerHeight/2;
-    const RING=Math.min(innerWidth,innerHeight)/9, MAXD=4, MAXN=400;
+    const R0=Math.min(innerWidth,innerHeight)*0.42, MAXD=4, MAXN=400;
     twodPlaced=[];
     const leafCache=new Map();
     function leaves(n,d){
@@ -791,51 +793,53 @@ function drawTwod(){
         const v=f.length?f.reduce((s,i)=>s+leaves(n.slots[i],d+1),0):1;
         leafCache.set(n,v); return v;
     }
-    tctx.setLineDash([4,6]); tctx.strokeStyle='#12141f';
-    for(let d=1;d<=MAXD;d++){ tctx.beginPath(); tctx.arc(cx,cy,d*RING,0,Math.PI*2); tctx.stroke(); }
-    tctx.setLineDash([]);
     let count=0;
-    (function place(n,a0,a1,d,px,py){
-        if(count++>MAXN) return;
-        const a=(a0+a1)/2, r=d*RING;
-        const x=cx+Math.cos(a)*r, y=cy+Math.sin(a)*r;
-        if(d>0){
-            tctx.strokeStyle='rgba(120,130,160,'+(0.55/d)+')';
-            tctx.lineWidth=Math.max(2.2-d*0.5,0.6);
-            tctx.beginPath(); tctx.moveTo(px,py); tctx.lineTo(x,y); tctx.stroke();
-        }
-        const nr=Math.max(15-d*4,4);
-        tctx.fillStyle=d===0?'#ff4757':'#'+Engine.colorOf(n).getHexString();
-        tctx.beginPath(); tctx.arc(x,y,nr,0,Math.PI*2); tctx.fill();
-        if(n===State.selNode){ tctx.strokeStyle='#fff'; tctx.lineWidth=1.5; tctx.setLineDash([3,3]);
-            tctx.beginPath(); tctx.arc(x,y,nr+4,0,Math.PI*2); tctx.stroke(); tctx.setLineDash([]); }
-        twodPlaced.push({x,y,r:nr,node:n});
-        if(d<=2){
+    (function place(n,x,y,R,d){
+        if(count++>MAXN || R<3) return;
+        const col=d===0?'#ff4757':'#'+Engine.colorOf(n).getHexString();
+        /* küme dairesi: hafif dolgu + renkli çember */
+        tctx.globalAlpha=0.09; tctx.fillStyle=col;
+        tctx.beginPath(); tctx.arc(x,y,R,0,Math.PI*2); tctx.fill();
+        tctx.globalAlpha=Math.max(0.9-d*0.15,0.4);
+        tctx.strokeStyle=col; tctx.lineWidth=Math.max(2.4-d*0.6,0.8);
+        tctx.beginPath(); tctx.arc(x,y,R,0,Math.PI*2); tctx.stroke();
+        tctx.globalAlpha=1;
+        if(n===State.selNode){ tctx.strokeStyle='#fff'; tctx.lineWidth=1.5; tctx.setLineDash([4,4]);
+            tctx.beginPath(); tctx.arc(x,y,R+5,0,Math.PI*2); tctx.stroke(); tctx.setLineDash([]); }
+        twodPlaced.push({x,y,r:R,node:n});
+        /* etiket: kümenin üst iç kenarında */
+        if(R>=22){
             tctx.fillStyle=d===0?'#ff9aa5':'#a4b0be';
-            tctx.font=(d===0?'bold 13px':'10px')+' Courier New';
+            tctx.font=(d===0?'bold 13px':(d===1?'11px':'10px'))+' Courier New';
             tctx.textAlign='center';
             const t=n.title||D.address(n);
-            tctx.fillText(t.length>22?t.slice(0,21)+'…':t, x, y+nr+13);
-        }
-        if(d>=MAXD){
-            const f=D.filledSlots(n);
-            if(f.length){ tctx.fillStyle='#57606f'; tctx.font='9px Courier New';
-                tctx.fillText('+'+f.length, x, y+nr+22); }
-            return;
+            tctx.fillText(t.length>22?t.slice(0,21)+'…':t, x, y-R+14);
         }
         const f=D.filledSlots(n);
         if(!f.length) return;
+        if(d>=MAXD){ /* derinlik sınırı: kalan alt küme sayısını göster */
+            tctx.fillStyle='#57606f'; tctx.font='9px Courier New'; tctx.textAlign='center';
+            tctx.fillText('+'+f.length, x, y+4);
+            return;
+        }
         const total=f.reduce((s,i)=>s+leaves(n.slots[i],d+1),0);
-        let cur=d===0?0:a0;
-        const span=d===0?Math.PI*2:(a1-a0);
-        f.forEach(i=>{
-            const w=leaves(n.slots[i],d+1)/total*span;
-            place(n.slots[i],cur,cur+w,d+1,x,y);
-            cur+=w;
+        if(f.length===1){ /* tek alt küme: merkezde büyük daire */
+            place(n.slots[f[0]], x, y+R*0.12, R*0.62, d+1);
+            return;
+        }
+        /* alt kümeler ebeveyn dairesinin içinde bir halkaya dizilir;
+           yarıçap ağırlığı = alt ağacın yaprak sayısı (√ ile alan orantılı) */
+        const k=f.length, rho=R*0.58;
+        const rFit=Math.min(rho*Math.sin(Math.PI/k)*0.92, R-rho-2);
+        f.forEach((i,j)=>{
+            const w=Math.sqrt(leaves(n.slots[i],d+1)/total);
+            const r=Math.max(Math.min(R*0.52*w, rFit), 3.5);
+            const a=-Math.PI/2 + j*2*Math.PI/k + d*0.5;
+            place(n.slots[i], x+Math.cos(a)*rho, y+Math.sin(a)*rho, r, d+1);
         });
-    })(twodRoot,0,Math.PI*2,0,cx,cy);
+    })(twodRoot,cx,cy,R0,0);
     tctx.fillStyle='#3d4452'; tctx.font='10px Courier New'; tctx.textAlign='left';
-    tctx.fillText('3D Kuantum Not Evreni · radial indirgeme · '+new Date().toLocaleDateString('tr-TR'),16,innerHeight-16);
+    tctx.fillText('3D Kuantum Not Evreni · küme–alt küme indirgemesi · '+new Date().toLocaleDateString('tr-TR'),16,innerHeight-16);
 }
 
 /* ============================================================ TOAST + TIP */

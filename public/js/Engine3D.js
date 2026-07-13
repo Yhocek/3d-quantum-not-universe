@@ -13,6 +13,7 @@ export let onViewChanged=()=>{}; // UIManager bağlar
 export function setViewChanged(fn){ onViewChanged=fn; }
 
 let atomsMesh, slotsMesh, bondLines=null, grandPoints=null, linkLines=null;
+let selLine=null, selPathIdx=new Map(), lastSel=null, lastOpen=null;
 let attachGroup, labelPool=[];
 let composer=null, bloomPass=null, atomShader=null;
 const LABEL_CAP=60;
@@ -115,8 +116,9 @@ export function buildView(node){
     State.openNode=node;
     const W=worldOf(node), R=W.radius, C=W.pos;
     atomInst.length=0; slotInst.length=0;
-    [bondLines, grandPoints, linkLines].forEach(o=>{ if(o){ scene.remove(o); o.geometry.dispose(); } });
-    bondLines=grandPoints=linkLines=null;
+    [bondLines, grandPoints, linkLines, selLine].forEach(o=>{ if(o){ scene.remove(o); o.geometry.dispose(); } });
+    bondLines=grandPoints=linkLines=selLine=null;
+    lastSel=lastOpen=null; selPathIdx.clear(); // seçim yolu yeni görünümde tazelenir
 
     atomInst.push({node, pos:C.clone(), r:R*SPHERE_K, color:new THREE.Color(0xff4757), kind:'open'});
 
@@ -212,10 +214,39 @@ export function buildView(node){
     onViewChanged();
 }
 
+/* ------------------------- SEÇİM YOLU: merkezden seçili noktaya renk -------
+   Bir atom seçildiğinde merkezden (açık küme) seçili düğüme uzanan zincir
+   renkli kalır ve renk dalgası merkezden dışa doğru akar; yol dışındaki
+   atomlar soluklaşır. Zincir boyunca gradyan bir çizgi de çizilir.        */
+function updateSelPath(){
+    lastSel=State.selNode; lastOpen=State.openNode;
+    selPathIdx.clear();
+    if(selLine){ scene.remove(selLine); selLine.geometry.dispose(); selLine.material.dispose(); selLine=null; }
+    const open=State.openNode, sel=State.selNode;
+    if(!open || !sel || sel===open || !inTreeOf(sel,open)) return;
+    const chain=[]; let n=sel;
+    while(n && n!==open){ chain.unshift(n); n=n.parent; }
+    chain.unshift(open);
+    chain.forEach((c,i)=>selPathIdx.set(c.id,i));
+    const pos=[], col=[], c0=new THREE.Color(0xff4757), c1=colorOf(sel);
+    chain.forEach((c,i)=>{
+        const W=worldOf(c);
+        pos.push(W.pos.x,W.pos.y,W.pos.z);
+        _tmpCol.copy(c0).lerp(c1, chain.length>1?i/(chain.length-1):1);
+        col.push(_tmpCol.r,_tmpCol.g,_tmpCol.b);
+    });
+    const g=new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos,3));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(col,3));
+    selLine=new THREE.Line(g, new THREE.LineBasicMaterial({vertexColors:true, transparent:true, opacity:0.95}));
+    scene.add(selLine);
+}
+
 /* ------------------------------------------------------- instance yazımı */
 export let hoverAtom=-1, hoverSlot=-1;
 export function setHover(a,s){ hoverAtom=a; hoverSlot=s; }
 export function writeInstances(t){
+    if(State.selNode!==lastSel || State.openNode!==lastOpen) updateSelPath();
     for(let i=0;i<atomInst.length;i++){
         const a=atomInst[i];
         let s=a.r;
@@ -225,10 +256,17 @@ export function writeInstances(t){
         if(a.node===State.selNode && a.kind==='child') s*=1.12;
         _s.set(s,s,s); _q.identity(); _m.compose(a.pos,_q,_s);
         atomsMesh.setMatrixAt(i,_m);
-        /* arama vurgusu: eşleşen atomlar parlak beyaza vurur */
+        /* renk önceliği: arama vurgusu > seçim yolu > normal */
         let col=a.color;
         if(State.searchHits.has(a.node.id) && a.kind!=='portal')
             col=_tmpCol.copy(a.color).lerp(_white, 0.55+0.4*Math.sin(t*5));
+        else if(selPathIdx.size && a.kind!=='portal'){
+            const idx=selPathIdx.get(a.node.id);
+            if(idx!=null) /* yolda: merkezden dışa akan parlaklık dalgası */
+                col=_tmpCol.copy(a.color).lerp(_white, 0.2+0.4*Math.max(0,Math.sin(t*3-idx*1.1)));
+            else /* yol dışı: soluklaş — seçili zincir öne çıksın */
+                col=_tmpCol.copy(a.color).lerp(_dimCol,0.6);
+        }
         else if(a.node===State.selNode && a.kind==='child')
             col=_tmpCol.copy(a.color).lerp(_white,0.45);
         atomsMesh.setColorAt(i,col);
