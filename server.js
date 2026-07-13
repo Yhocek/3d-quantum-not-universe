@@ -174,6 +174,23 @@ function sendJSON(res, code, obj) {
     res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8' });
     res.end(JSON.stringify(obj));
 }
+/* index.html'deki satır içi <script> blokları (import map) CSP tarafından
+   engellenmesin diye sha256 hash'leri script-src'e eklenir. mtime önbellekli. */
+let cspInline = { mtime: 0, hashes: '' };
+function inlineScriptHashes() {
+    try {
+        const file = path.join(PUBLIC_DIR, 'index.html');
+        const mtime = fs.statSync(file).mtimeMs;
+        if (mtime !== cspInline.mtime) {
+            const html = fs.readFileSync(file, 'utf8');
+            const hashes = [];
+            for (const m of html.matchAll(/<script(?![^>]*\bsrc\s*=)[^>]*>([\s\S]*?)<\/script>/gi))
+                hashes.push(" 'sha256-" + crypto.createHash('sha256').update(m[1]).digest('base64') + "'");
+            cspInline = { mtime, hashes: hashes.join('') };
+        }
+    } catch (e) { cspInline = { mtime: 0, hashes: '' }; }
+    return cspInline.hashes;
+}
 function secHeaders(res, isHtml) {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
@@ -183,7 +200,7 @@ function secHeaders(res, isHtml) {
     res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
     if (SECURE) res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
     if (isHtml) res.setHeader('Content-Security-Policy',
-        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
+        "default-src 'self'; script-src 'self'" + inlineScriptHashes() + "; style-src 'self' 'unsafe-inline'; " +
         "img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; " +
         "object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'");
 }

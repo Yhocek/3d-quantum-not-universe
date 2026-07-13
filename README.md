@@ -76,7 +76,7 @@ All user data is locked to individual accounts — no cross-user access is possi
 | Attack Vector | Protection |
 |---|---|
 | **CSRF** | Session-bound `X-CSRF` header required on all mutations |
-| **XSS** | Whitelist HTML sanitizer (strips all attributes); paste reduced to plain text; `data:text/html` uploads rejected; strict CSP (`script-src 'self'`, `object-src 'none'`) |
+| **XSS** | Whitelist HTML sanitizer (strips all attributes); paste reduced to plain text; `data:text/html` uploads rejected; strict CSP (`script-src 'self'` + auto-computed sha256 hash for the import map, `object-src 'none'`) |
 | **Brute Force** | Per user+IP lockout (8 failures → 15min lock); separate IP rate limits for login/register/asset/share |
 | **DoS** | Route-specific body limits (2/16/32 MB); tree validation (depth ≤12, nodes ≤50k, field lengths) |
 | **Prototype Pollution** | JSON reviver strips `__proto__`/`constructor`/`prototype` keys |
