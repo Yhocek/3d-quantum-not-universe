@@ -94,8 +94,160 @@ function newNode(label, slot, html) {
              label: label || 'isimsiz', type: 'micro_habit', size: 1, slot,
              html: cleanHtml(html), images: [], docs: [], links: [], children: [] };
 }
+function firstFreeSlot(n) {
+    const used = new Set((n.children || []).map(c => c.slot));
+    let s = 1; while (used.has(s) && s <= SLOT_COUNT) s++;
+    if (s > SLOT_COUNT) throw new Error('tüm yuvalar dolu (54/54)');
+    return s;
+}
 async function getNb(id) { return api('notebooks/' + encodeURIComponent(id)); }
 async function putRoot(id, root) { return api('notebooks/' + encodeURIComponent(id), { method: 'PUT', body: JSON.stringify({ root }) }); }
+
+/* ---------------------------------------- paylaşım erişimi (herkese açık) */
+async function getShare(ref) {
+    const m = /[?&]s=([a-f0-9]+)/.exec(String(ref)) || /^([a-f0-9]{8,})$/.exec(String(ref).trim());
+    if (!m) throw new Error('geçersiz paylaşım referansı — id ya da ?s=... URL ver');
+    const res = await fetch(BASE + '/api/share/' + m[1]); // link = yetki, oturum gerekmez
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(j.error || 'paylaşım ' + res.status);
+    return j;
+}
+
+/* ================================================= CONTRACTION HIERARCHIES ==
+   Paylaşılan haritada rota bulma: düğümler = notlar, kenarlar = ağaç
+   (ebeveyn-çocuk) bağları + solucan delikleri (hepsi 1 sıçrama).
+   Ön işlem: düğümler önem sırasıyla (kenar farkı, gevşek yeniden
+   değerlendirme) daraltılır; tanık araması daha kısa yol bulamazsa kısayol
+   eklenir. Sorgu: yalnız rütbesi artan kenarlarda iki yönlü Dijkstra;
+   buluşma düğümünden kısayollar orijinal kenarlara açılır.                */
+function buildCH(n, edges) {
+    const g = Array.from({ length: n }, () => new Map()); // u → Map(v → {w, via})
+    const addEdge = (u, v, w, via) => { const e = g[u].get(v); if (!e || e.w > w) g[u].set(v, { w, via }); };
+    for (const [u, v] of edges) { addEdge(u, v, 1, -1); addEdge(v, u, 1, -1); }
+    const rank = new Array(n).fill(-1);
+
+    function limitedDijkstra(src, skip, limit) { // tanık araması: skip hariç
+        const dist = new Map([[src, 0]]), pq = [[0, src]];
+        let guard = 0;
+        while (pq.length && guard++ < 4000) {
+            let bi = 0; for (let i = 1; i < pq.length; i++) if (pq[i][0] < pq[bi][0]) bi = i;
+            const [d, x] = pq.splice(bi, 1)[0];
+            if (d > (dist.get(x) ?? Infinity) || d >= limit) continue;
+            for (const [y, e] of g[x]) {
+                if (y === skip || rank[y] >= 0) continue;
+                const nd = d + e.w;
+                if (nd < (dist.get(y) ?? Infinity)) { dist.set(y, nd); pq.push([nd, y]); }
+            }
+        }
+        return dist;
+    }
+    function contract(c, dry) { // dönüş: gereken kısayol sayısı
+        const nb = [...g[c]].filter(([v]) => rank[v] < 0);
+        let added = 0;
+        const maxW = nb.length ? Math.max(...nb.map(([, e]) => e.w)) : 0;
+        for (let i = 0; i < nb.length; i++) {
+            const [u, eu] = nb[i];
+            const dist = limitedDijkstra(u, c, eu.w + maxW + 1);
+            for (let j = i + 1; j < nb.length; j++) {
+                const [v, ev] = nb[j];
+                const w = eu.w + ev.w;
+                if ((dist.get(v) ?? Infinity) > w) { // tanık yok → kısayol şart
+                    added++;
+                    if (!dry) { addEdge(u, v, w, c); addEdge(v, u, w, c); }
+                }
+            }
+        }
+        return added;
+    }
+    /* önem kuyruğu: kenar farkı (eklenen kısayol − silinen kenar) */
+    const prio = v => contract(v, true) - [...g[v]].filter(([x]) => rank[x] < 0).length;
+    const pq = []; for (let v = 0; v < n; v++) pq.push([prio(v), v]);
+    pq.sort((a, b) => a[0] - b[0]);
+    let r = 0;
+    while (pq.length) {
+        const v = pq.shift()[1];
+        const np = prio(v); // gevşek güncelleme: bayatladıysa geri koy
+        if (pq.length && np > pq[0][0]) {
+            let lo = 0, hi = pq.length;
+            while (lo < hi) { const m = (lo + hi) >> 1; if (pq[m][0] < np) lo = m + 1; else hi = m; }
+            pq.splice(lo, 0, [np, v]);
+            continue;
+        }
+        contract(v, false); rank[v] = r++;
+    }
+
+    function unpack(u, v, out) { // kısayol → orijinal kenar dizisi
+        const e = g[u].get(v);
+        if (!e || e.via < 0) { out.push(v); return; }
+        unpack(u, e.via, out); unpack(e.via, v, out);
+    }
+    function query(s, t) {
+        if (s === t) return [s];
+        const D = [new Map([[s, 0]]), new Map([[t, 0]])], P = [new Map(), new Map()];
+        const Q = [[[0, s]], [[0, t]]];
+        let best = Infinity, meet = -1;
+        while (Q[0].length || Q[1].length) {
+            for (const side of [0, 1]) {
+                const q = Q[side]; if (!q.length) continue;
+                let bi = 0; for (let i = 1; i < q.length; i++) if (q[i][0] < q[bi][0]) bi = i;
+                const [d, u] = q.splice(bi, 1)[0];
+                if (d > (D[side].get(u) ?? Infinity) || d >= best) continue;
+                const o = D[1 - side].get(u);
+                if (o != null && d + o < best) { best = d + o; meet = u; }
+                for (const [v, e] of g[u]) {
+                    if (rank[v] <= rank[u]) continue; // yalnız yukarı
+                    const nd = d + e.w;
+                    if (nd < (D[side].get(v) ?? Infinity)) { D[side].set(v, nd); P[side].set(v, u); q.push([nd, v]); }
+                }
+            }
+            const low = Math.min(...[0, 1].map(s2 => Q[s2].length ? Math.min(...Q[s2].map(x => x[0])) : Infinity));
+            if (low >= best) break;
+        }
+        if (meet < 0) return null;
+        const up = []; for (let u = meet; u !== undefined; u = P[0].get(u)) up.push(u);
+        up.reverse();
+        const down = []; for (let u = P[1].get(meet); u !== undefined; u = P[1].get(u)) down.push(u);
+        const coarse = up.concat(down);
+        const path = [coarse[0]];
+        for (let i = 1; i < coarse.length; i++) unpack(coarse[i - 1], coarse[i], path);
+        return path;
+    }
+    return { query };
+}
+
+/* paylaşım ağacı → grafik (adresler, ağaç kenarları, solucan delikleri) + CH */
+const shareCache = new Map(); // sid → {share, addrs, meta, worm, ch}
+async function shareIndex(ref) {
+    const share = await getShare(ref);
+    if (shareCache.has(share.id)) return shareCache.get(share.id);
+    const addrs = [], meta = [], idOf = new Map(), edges = [], worm = new Set();
+    (function walk(node, addr, parentIdx) {
+        const idx = addrs.length;
+        addrs.push(addr); meta.push(node);
+        if (node.id) idOf.set(node.id, idx);
+        if (parentIdx >= 0) edges.push([parentIdx, idx]);
+        for (const c of (node.children || [])) walk(c, addr + '.' + c.slot, idx);
+    })(share.root, '0', -1);
+    for (let i = 0; i < meta.length; i++)
+        for (const id of (meta[i].links || [])) {
+            const j = idOf.get(id);
+            if (j != null && j > i) { edges.push([i, j]); worm.add(i + ':' + j); worm.add(j + ':' + i); }
+        }
+    if (addrs.length > 20000) throw new Error('paylaşım çok büyük (' + addrs.length + ' düğüm)');
+    const entry = { share, addrs, meta, worm, ch: buildCH(addrs.length, edges) };
+    shareCache.set(share.id, entry);
+    return entry;
+}
+function fmtRoute(path, meta, addrs, worm) {
+    const hops = path.length - 1;
+    let worms = 0, s = addrs[path[0]] + ' (' + (meta[path[0]].label || 'isimsiz') + ')';
+    for (let i = 1; i < path.length; i++) {
+        const isWorm = worm.has(path[i - 1] + ':' + path[i]);
+        if (isWorm) worms++;
+        s += (isWorm ? ' 🕳→ ' : ' → ') + addrs[path[i]] + ' (' + (meta[path[i]].label || 'isimsiz') + ')';
+    }
+    return { hops, wormholes: worms, route: s };
+}
 
 /* ------------------------------------------------------------------ araçlar */
 const TOOLS = [
@@ -152,15 +304,11 @@ const TOOLS = [
             const p = nodeAt(nb.root, a.parent_address);
             if (!p) throw new Error('ebeveyn adresi bulunamadı: ' + a.parent_address);
             p.children = p.children || [];
-            const used = new Set(p.children.map(c => c.slot));
             let slot = a.slot;
             if (slot != null) {
                 if (!(slot >= 1 && slot <= SLOT_COUNT)) throw new Error('slot 1-' + SLOT_COUNT + ' arasında olmalı');
-                if (used.has(slot)) throw new Error('yuva dolu: ' + slot);
-            } else {
-                slot = 1; while (used.has(slot) && slot <= SLOT_COUNT) slot++;
-                if (slot > SLOT_COUNT) throw new Error('tüm yuvalar dolu (54/54)');
-            }
+                if (p.children.some(c => c.slot === slot)) throw new Error('yuva dolu: ' + slot);
+            } else slot = firstFreeSlot(p);
             p.children.push(newNode(a.title, slot, a.html));
             await putRoot(a.notebook_id, nb.root);
             return { ok: true, address: a.parent_address + '.' + slot, title: a.title };
@@ -241,6 +389,82 @@ const TOOLS = [
         }
     },
     {
+        name: 'file_note',
+        description: 'Konuşmaları, kod çözümlerini ve öğrenilen bilgileri HİYERARŞİK KATEGORİYE dosyalar — dil modelleri için birincil kayıt aracı. category_path "/" ile ayrılmış kategori zinciridir (örn. "Dersler/Matematik/Calculus/Calculus1 Notları" veya "Kodlama/Python/Web Scraping"); eksik kategori düğümleri otomatik oluşturulur, var olanlar yeniden kullanılır. Defter verilmezse "Claude Evreni" defteri kullanılır (yoksa yaratılır). Yeni notun adresini döndürür.',
+        inputSchema: { type: 'object', properties: {
+            category_path: { type: 'string', description: 'Kategori zinciri, "/" ayraçlı — örn. "Dersler/Matematik/Calculus/Calculus1 Notları"' },
+            title: { type: 'string', description: 'Not başlığı' },
+            html: { type: 'string', description: 'İsteğe bağlı gövde (izinli etiketler: h1,h2,p,b,i,ul,li…)' },
+            notebook: { type: 'string', description: 'Defter adı (varsayılan "Claude Evreni"; yoksa oluşturulur)' }
+        }, required: ['category_path', 'title'] },
+        run: async a => {
+            const name = (a.notebook || 'Claude Evreni').trim();
+            const list = await api('notebooks');
+            let nbMeta = list.find(x => (x.name || '').trim().toLowerCase() === name.toLowerCase());
+            if (!nbMeta) nbMeta = await api('notebooks', { method: 'POST', body: JSON.stringify({
+                name, root: { id: 'root', label: 'Ana Merkez', type: 'macro_goal', size: 5,
+                              slot: null, html: '', images: [], docs: [], links: [], children: [] } }) });
+            const nb = await getNb(nbMeta.id);
+            const segs = String(a.category_path || '').split('/').map(s => s.trim()).filter(Boolean);
+            if (!segs.length) throw new Error('category_path boş — örn. "Dersler/Matematik"');
+            let node = nb.root, addr = '0';
+            for (const seg of segs) { // kategori zinciri: bul ya da oluştur
+                node.children = node.children || [];
+                let child = node.children.find(c => (c.label || '').trim().toLowerCase() === seg.toLowerCase());
+                if (!child) { child = newNode(seg, firstFreeSlot(node)); node.children.push(child); }
+                node = child; addr += '.' + node.slot;
+            }
+            node.children = node.children || [];
+            const slot = firstFreeSlot(node);
+            node.children.push(newNode(a.title, slot, a.html));
+            await putRoot(nbMeta.id, nb.root);
+            return { ok: true, notebook: name, notebook_id: nbMeta.id,
+                     category: segs.join('/'), address: addr + '.' + slot, title: a.title };
+        }
+    },
+    {
+        name: 'read_share',
+        description: 'Herkese açık bir paylaşım linkindeki (?s=... URL ya da paylaşım id) haritayı okur: ad, odak ve adresli taslak. Oturum gerektirmez — başkasının paylaştığı haritalar da okunabilir.',
+        inputSchema: { type: 'object', properties: {
+            share: { type: 'string', description: 'Paylaşım URL\'i ya da id\'si' },
+            depth: { type: 'number', description: 'Taslak derinliği (varsayılan 4)' }
+        }, required: ['share'] },
+        run: async a => {
+            const s = await getShare(a.share);
+            return s.name + ' (odak: ' + (s.focus || '0') + ')\n' +
+                outline(s.root, '0', 0, a.depth != null ? a.depth : 4).join('\n');
+        }
+    },
+    {
+        name: 'search_share',
+        description: 'Paylaşılan haritada metin arar ve her sonuç için başlangıç noktasından hedefe EN KISA ROTAYI Contraction Hierarchies ile hesaplar (ağaç bağları + solucan delikleri üzerinde, kısayol ön işlemli iki yönlü Dijkstra). Rota "🕳→" işaretli adımlarda solucan deliğinden geçer. Oturum gerektirmez.',
+        inputSchema: { type: 'object', properties: {
+            share: { type: 'string', description: 'Paylaşım URL\'i ya da id\'si' },
+            query: { type: 'string', description: 'Aranacak metin (başlık + gövde)' },
+            from_address: { type: 'string', description: 'Rota başlangıcı (varsayılan: paylaşımın odağı)' }
+        }, required: ['share', 'query'] },
+        run: async a => {
+            const { share, addrs, meta, worm, ch } = await shareIndex(a.share);
+            const q = String(a.query).toLowerCase();
+            const fromAddr = a.from_address || share.focus || '0';
+            const src = addrs.indexOf(fromAddr);
+            if (src < 0) throw new Error('başlangıç adresi paylaşımda yok: ' + fromAddr);
+            const hits = [];
+            for (let i = 0; i < meta.length && hits.length < 15; i++) {
+                const body = stripTags(meta[i].html).toLowerCase();
+                const title = (meta[i].label || '').toLowerCase();
+                if (!title.includes(q) && !body.includes(q)) continue;
+                const path = ch.query(src, i);
+                const bi = body.indexOf(q);
+                hits.push(Object.assign(
+                    { address: addrs[i], title: meta[i].label,
+                      snippet: bi >= 0 ? '…' + stripTags(meta[i].html).slice(Math.max(0, bi - 14), bi + q.length + 26) + '…' : '' },
+                    path ? fmtRoute(path, meta, addrs, worm) : { route: 'rota yok' }));
+            }
+            return hits.length ? hits : 'sonuç yok: "' + a.query + '"';
+        }
+    },
+    {
         name: 'create_share_link',
         description: 'Adresteki alt ağaç için herkese açık paylaşım linki üretir.',
         inputSchema: { type: 'object', properties: {
@@ -267,7 +491,15 @@ async function handle(line) {
             return send({ jsonrpc: '2.0', id, result: {
                 protocolVersion: (params && params.protocolVersion) || '2024-11-05',
                 capabilities: { tools: {} },
-                serverInfo: { name: 'not-evreni', version: '1.0.0' } } });
+                serverInfo: { name: 'not-evreni', version: '1.1.0' },
+                instructions: 'Bu sunucu kullanıcının 3D Kuantum Not Evreni\'ne bağlanır. ' +
+                    'Kayda değer her konuşmayı, kod çözümünü ve öğrenilen bilgiyi file_note ile ' +
+                    'HİYERARŞİK kategoriye dosyala — örn. "Dersler/Matematik/Calculus/Calculus1 Notları", ' +
+                    '"Kodlama/Python/Web Scraping". Önce get_outline ile mevcut kategorileri keşfet ve ' +
+                    'aynı anlama gelen kategori zaten varsa ONU kullan; gereksiz kategori çoğaltma. ' +
+                    'Kullanıcı evreni elle de düzenler — var olan yapıya saygı göster. ' +
+                    'Paylaşılan haritalarda (?s=... linki) read_share ile gezin, search_share ile ara; ' +
+                    'rotalar Contraction Hierarchies ile hesaplanır ve 🕳→ adımları solucan deliğidir.' } });
         if (method && method.startsWith('notifications/')) return;
         if (method === 'ping') return send({ jsonrpc: '2.0', id, result: {} });
         if (method === 'tools/list')

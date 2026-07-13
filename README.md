@@ -31,7 +31,9 @@
 | 🔍 **Global Search** | Matching atoms glow white in 3D space; click result → fly to node |
 | ⏳ **Time Tunnel** | Version history with auto-snapshots (10min) + manual saves; session Ctrl+Z/Y |
 | 🗺️ **2D Reduction** | Nested cluster–subcluster map via pure Canvas 2D — each note is a circle, children live inside it |
-| 🤖 **MCP Server** | Zero-dependency MCP bridge (`mcp-server.js`) — Claude connects to your universe: read, search, add, update notes |
+| 🤖 **MCP Server** | Zero-dependency MCP bridge (`mcp-server.js`) — Claude (or any LLM) connects to your universe: read, search, add, update notes |
+| 🗂️ **Auto-Categorization** | Connected LLMs file conversations & code into a hierarchy (`Dersler/Matematik/Calculus/Calculus1 Notları`) via `file_note` — the universe grows itself |
+| 🛣️ **CH Route Search** | Shared maps are searchable by LLMs with real **Contraction Hierarchies** — shortest routes over tree bonds + wormholes |
 | 📐 **Screen Sync** | Adaptive FOV for ultrawide/curved monitors, DPR re-sync across monitors, dynamic viewport + safe-area + pinch-zoom on mobile |
 | 📸 **PNG Export** | Top-down orthographic 3D capture + 2D map download |
 | 🔄 **JSON Import/Export** | Portable standard schema (`id/label/type/size/children`) |
@@ -257,6 +259,30 @@ Working inside this repo? Claude Code auto-discovers `.mcp.json` — just export
 | `search_notes` | Full-text search over titles + bodies with snippets |
 | `create_notebook` | New empty notebook |
 | `create_share_link` | Public share URL for a subtree |
+| `file_note` | **Auto-categorization**: files a note under a category path, creating missing levels |
+| `read_share` | Read any public shared map (`?s=...` URL or id) — no login needed |
+| `search_share` | Search a shared map; routes computed with **Contraction Hierarchies** |
+
+### 🗂️ Auto-Categorization — the universe grows itself
+
+The MCP server ships `instructions` that tell any connected LLM to file every noteworthy conversation, code solution, or learned fact with `file_note` under a hierarchical category path:
+
+```
+file_note(category_path: "Dersler/Matematik/Calculus/Calculus1 Notları",
+          title: "Limit tanımı", html: "<p>epsilon-delta…</p>")
+```
+
+Missing category nodes are created on the fly; existing ones are matched case-insensitively and reused, so repeated sessions keep building the *same* tree instead of duplicating branches. Everything lands in the **"Claude Evreni"** notebook by default (override with `notebook`). The result: over time your conversations self-organize into a giant navigable 3D universe — `Dersler → Matematik → Calculus → Calculus1 Notları` — while manual editing in the browser keeps working exactly as before; the LLM is told to respect the structure you shape by hand.
+
+### 🛣️ Contraction Hierarchies — finding things in shared maps
+
+When someone shares a map with you (`?s=...` link), a connected LLM can search it without any account via `search_share`. Under the hood the note graph — tree bonds **plus quantum wormholes** — is preprocessed with a real Contraction Hierarchies implementation (importance-ordered node contraction with witness searches, shortcut edges, bidirectional upward Dijkstra, shortcut unpacking). Each search hit comes back with the shortest route from the map's focus (or any `from_address`) to the target, with wormhole hops marked:
+
+```
+0 (Kök) → 0.1 (Kestirme Rafı) 🕳→ 0.2.1.1.1 (Calculus1 Notları)   · 2 hops, 1 wormhole
+```
+
+— two hops through a wormhole instead of four down the tree. The CH index is built once per share and cached.
 
 ---
 
