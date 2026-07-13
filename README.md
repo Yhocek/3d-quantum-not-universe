@@ -32,6 +32,7 @@
 | ⏳ **Time Tunnel** | Version history with auto-snapshots (10min) + manual saves; session Ctrl+Z/Y |
 | 🗺️ **2D Reduction** | Nested cluster–subcluster map via pure Canvas 2D — each note is a circle, children live inside it |
 | 🤖 **MCP Server** | Zero-dependency MCP bridge (`mcp-server.js`) — Claude connects to your universe: read, search, add, update notes |
+| 📐 **Screen Sync** | Adaptive FOV for ultrawide/curved monitors, DPR re-sync across monitors, dynamic viewport + safe-area + pinch-zoom on mobile |
 | 📸 **PNG Export** | Top-down orthographic 3D capture + 2D map download |
 | 🔄 **JSON Import/Export** | Portable standard schema (`id/label/type/size/children`) |
 | 🌐 **Shareable Links** | Share subtrees via short `?s=<code>` URLs |
@@ -177,6 +178,9 @@ GET    /api/health                                    → { ok, name, auth }
 | **Scroll** | Zoom |
 | **Ctrl+Z / Ctrl+Y** | Undo / Redo |
 | **Purple portal** | Quantum tunnel teleport |
+| **One-finger drag** 📱 | Look (flight) / Orbit (focus) |
+| **Tap** 📱 | Select atom / spawn note on empty slot |
+| **Two-finger pinch** 📱 | Zoom in/out (focus mode) |
 
 ---
 
@@ -198,6 +202,18 @@ The 54 slots are distributed across 7 latitude rings:
 
 ---
 
+## 📐 Screen Sync — Mobile & Curved/Ultrawide Monitors
+
+The renderer keeps itself synchronized with whatever screen it lands on:
+
+- **Adaptive FOV** — vertical FOV is derived from the screen's aspect ratio so the *horizontal* field of view stays in the 60–105° comfort band: no fisheye edge distortion on 21:9 / 32:9 curved monitors, no tunnel vision on portrait phones. Standard 16:9 screens keep the classic 70°.
+- **DPR re-sync** — dragging the window to a monitor with a different pixel density (external curved display, Retina laptop) re-applies `setPixelRatio` automatically via a self-re-arming `resolution` media query.
+- **Unified resize pipeline** — `resize`, `orientationchange`, and `visualViewport` (mobile URL-bar show/hide) all funnel into one handler that updates camera, renderer, and bloom composer together.
+- **Mobile viewport** — `100dvh` panel heights track the dynamic browser chrome; `viewport-fit=cover` + `env(safe-area-inset-*)` keep panels clear of notches and curved screen edges; touch targets grow on small screens.
+- **Touch controls** — one-finger drag to look/orbit, tap to select or spawn a note, two-finger pinch to zoom in focus mode.
+
+---
+
 ## 🔧 Configuration
 
 | Environment Variable | Default | Description |
@@ -206,6 +222,9 @@ The 54 slots are distributed across 7 latitude rings:
 | `TLS_KEY` | — | Path to TLS private key (enables HTTPS) |
 | `TLS_CERT` | — | Path to TLS certificate |
 | `COOKIE_SECURE` | — | Set to `1` for Secure cookies behind reverse proxy |
+| `NOTE_BASE_URL` | `http://localhost:3000` | *(MCP)* Site URL the MCP bridge connects to |
+| `NOTE_USER` / `NOTE_PASS` | — | *(MCP)* Account credentials for the MCP bridge |
+| `NOTE_REGISTER` | — | *(MCP)* Set to `1` to auto-register the account on first run |
 
 ---
 

@@ -32,6 +32,7 @@
 
     /* ---------- SAĞ: NOT PANELİ (iPhone Notlar tarzı) ---------- */
     #note{top:14px;right:14px;width:330px;max-height:calc(100vh - 90px);
+        max-height:calc(100dvh - 90px); /* mobil: adres çubuğuyla senkron dinamik yükseklik */
         border-color:var(--cyan);pointer-events:auto;display:flex;flex-direction:column}
     #addr{font-size:11px;color:var(--amber);margin-bottom:6px;letter-spacing:1px;word-break:break-all}
     #addr .crumb{color:var(--cyan);cursor:pointer;border-bottom:1px dashed var(--cyan)}
@@ -132,6 +133,16 @@
         #note.force{display:flex;position:absolute;left:14px;right:14px;top:14px;width:auto;z-index:25}
         #note.force #note-close{display:block}
         #hud{max-width:calc(100vw - 28px)} .btnrow{max-width:calc(100vw - 28px)}
+        /* dokunmatik hedefler: parmakla vurulabilir boyut */
+        button{padding:11px 14px}
+        #modebar button,#fmt button,#attach-btns button{padding:9px 6px}
+    }
+    /* çentikli/kavisli kenarlı ekranlar: paneller güvenli alanla senkron */
+    @supports(top:max(0px)){
+        #hud{top:max(14px,env(safe-area-inset-top));left:max(14px,env(safe-area-inset-left))}
+        #note{top:max(14px,env(safe-area-inset-top));right:max(14px,env(safe-area-inset-right))}
+        .btnrow{bottom:max(14px,env(safe-area-inset-bottom));left:max(14px,env(safe-area-inset-left))}
+        #stats{bottom:max(14px,env(safe-area-inset-bottom));right:max(14px,env(safe-area-inset-right))}
     }
     @media (prefers-reduced-motion:reduce){ *{transition:none!important} }
 

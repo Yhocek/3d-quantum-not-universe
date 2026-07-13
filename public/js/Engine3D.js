@@ -64,10 +64,34 @@ export function init(){
     }
 
     initPost(); // bloom (başarısız olursa sessizce düz render'a düşer)
+
+    /* --- EKRAN SENKRONİZASYONU ---
+       resize + orientationchange + visualViewport (mobil adres çubuğu) +
+       DPR değişimi (pencere kavisli/harici monitöre taşınınca) tek yerden */
     window.addEventListener('resize', onResize);
+    window.addEventListener('orientationchange', onResize);
+    if(window.visualViewport) visualViewport.addEventListener('resize', onResize);
+    (function watchDPR(){
+        matchMedia('(resolution: '+devicePixelRatio+'dppx)')
+            .addEventListener('change', ()=>{ onResize(); watchDPR(); }, {once:true});
+    })();
+    onResize(); // ilk FOV/DPR senkronu
+}
+/* Dikey FOV'u ekran şekliyle senkronla: ultrageniş/kavisli ekranda yatay görüş
+   105°'yi aşmasın (kenar bozulması), dikey telefonda 60°'nin altına inmesin
+   (görüş daralması). 16:9 ve karesel ekranlar 70° tabanında kalır. */
+function fovForAspect(aspect){
+    const BASE=70, H_MAX=105, H_MIN=60, half=x=>THREE.MathUtils.degToRad(x/2);
+    const hDeg=THREE.MathUtils.radToDeg(2*Math.atan(Math.tan(half(BASE))*aspect));
+    if(hDeg>H_MAX) return THREE.MathUtils.radToDeg(2*Math.atan(Math.tan(half(H_MAX))/aspect));
+    if(hDeg<H_MIN) return THREE.MathUtils.radToDeg(2*Math.atan(Math.tan(half(H_MIN))/aspect));
+    return BASE;
 }
 function onResize(){
-    camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix();
+    camera.aspect=innerWidth/innerHeight;
+    camera.fov=fovForAspect(camera.aspect);
+    camera.updateProjectionMatrix();
+    renderer.setPixelRatio(Math.min(devicePixelRatio,2)); // monitör geçişi: DPR tazele
     renderer.setSize(innerWidth, innerHeight);
     if(composer) composer.setSize(innerWidth, innerHeight);
 }
