@@ -230,7 +230,7 @@ async function shareIndex(ref) {
     })(share.root, '0', -1);
     for (let i = 0; i < meta.length; i++)
         for (const id of (meta[i].links || [])) {
-            const j = idOf.get(id);
+            const j = idOf.get(String(id).includes(':') ? String(id).split(':').pop() : id);
             if (j != null && j > i) { edges.push([i, j]); worm.add(i + ':' + j); worm.add(j + ':' + i); }
         }
     if (addrs.length > 20000) throw new Error('paylaşım çok büyük (' + addrs.length + ' düğüm)');
@@ -283,10 +283,21 @@ const TOOLS = [
             const nb = await getNb(a.notebook_id);
             const n = nodeAt(nb.root, a.address);
             if (!n) throw new Error('adres bulunamadı: ' + a.address);
+            /* bağlantılar: aynı defterdekiler adres/başlıkla çözülür,
+               defterler arası olanlar "defterId:düğümId" olarak listelenir */
+            const byId = new Map();
+            (function idx(x, ad) { if (x.id) byId.set(x.id, { address: ad, title: x.label });
+                for (const c of (x.children || [])) idx(c, ad + '.' + c.slot); })(nb.root, '0');
+            const links = (n.links || []).map(l => {
+                const cross = l.includes(':');
+                const hit = byId.get(cross ? l.split(':').pop() : l);
+                return hit ? Object.assign({ raw: l }, hit)
+                           : { raw: l, cross_notebook: cross ? l.split(':')[0] : undefined };
+            });
             return { address: a.address, title: n.label, text: stripTags(n.html), html: n.html,
                      children: (n.children || []).map(c => ({ address: a.address + '.' + c.slot, title: c.label })),
                      images: (n.images || []).map(x => x.name), docs: (n.docs || []).map(x => x.name),
-                     wormholes: (n.links || []).length };
+                     links };
         }
     },
     {
@@ -386,6 +397,36 @@ const TOOLS = [
                 name: a.name, root: { id: 'root', label: 'Ana Merkez', type: 'macro_goal', size: 5,
                                       slot: null, html: '', images: [], docs: [], links: [], children: [] } }) });
             return { ok: true, id: r.id, name: r.name };
+        }
+    },
+    {
+        name: 'link_notes',
+        description: 'İki notu çift yönlü solucan deliğiyle bağlar — Obsidian tarzı bağlantı. target_notebook_id verilirse FARKLI defterlerdeki notlar bağlanır (defterler arası köprü): böylece defterler çok boyutlu bir sinir ağına/beyne dönüşür. İlişkili kavramları (örn. "Calculus" ↔ "Fizik/Hareket") bağlamak bilgi grafını güçlendirir.',
+        inputSchema: { type: 'object', properties: {
+            notebook_id: { type: 'string' },
+            address: { type: 'string', description: 'Kaynak not adresi' },
+            target_address: { type: 'string', description: 'Hedef not adresi' },
+            target_notebook_id: { type: 'string', description: 'Hedef farklı defterdeyse onun id\'si' }
+        }, required: ['notebook_id', 'address', 'target_address'] },
+        run: async a => {
+            const tid = a.target_notebook_id || a.notebook_id;
+            const same = tid === a.notebook_id;
+            const nbA = await getNb(a.notebook_id);
+            const nbB = same ? nbA : await getNb(tid);
+            const A = nodeAt(nbA.root, a.address), B = nodeAt(nbB.root, a.target_address);
+            if (!A) throw new Error('kaynak adres bulunamadı: ' + a.address);
+            if (!B) throw new Error('hedef adres bulunamadı: ' + a.target_address);
+            if (A === B) throw new Error('not kendisine bağlanamaz');
+            if (!A.id || !B.id) throw new Error('düğüm id\'leri eksik');
+            A.links = A.links || []; B.links = B.links || [];
+            const refB = same ? B.id : tid + ':' + B.id;
+            const refA = same ? A.id : a.notebook_id + ':' + A.id;
+            if (!A.links.includes(refB)) A.links.push(refB);
+            if (!B.links.includes(refA)) B.links.push(refA);
+            await putRoot(a.notebook_id, nbA.root);
+            if (!same) await putRoot(tid, nbB.root);
+            return { ok: true, linked: (A.label || a.address) + ' ⇄ ' + (B.label || a.target_address),
+                     cross_notebook: !same };
         }
     },
     {
@@ -497,6 +538,8 @@ async function handle(line) {
                     'HİYERARŞİK kategoriye dosyala — örn. "Dersler/Matematik/Calculus/Calculus1 Notları", ' +
                     '"Kodlama/Python/Web Scraping". Önce get_outline ile mevcut kategorileri keşfet ve ' +
                     'aynı anlama gelen kategori zaten varsa ONU kullan; gereksiz kategori çoğaltma. ' +
+                    'İlişkili kavramları link_notes ile bağla (Obsidian tarzı; target_notebook_id ile ' +
+                    'defterler arası da olur) — böylece notlar çok boyutlu bir sinir ağına dönüşür. ' +
                     'Kullanıcı evreni elle de düzenler — var olan yapıya saygı göster. ' +
                     'Paylaşılan haritalarda (?s=... linki) read_share ile gezin, search_share ile ara; ' +
                     'rotalar Contraction Hierarchies ile hesaplanır ve 🕳→ adımları solucan deliğidir.' } });

@@ -63,6 +63,7 @@
     <div class="att-list" id="doc-list"></div>
     <div id="link-btns">
         <button id="link-start">🕳 Kuantum Bağlantısı Kur (Solucan Deliği)</button>
+        <button id="link-x">🧠 Defterler Arası Bağla</button>
     </div>
     <div id="sublist"></div>
 </div>
@@ -80,6 +81,7 @@
     <button id="btn-tunnel" class="up">⏳ ZAMAN TÜNELİ</button>
     <button id="btn-share" class="share">🔗 PAYLAŞ</button>
     <button id="btn-twod" class="ghost">🗺 2B</button>
+    <button id="btn-brain" class="ghost">🧠 BEYİN</button>
     <button id="btn-topdown" class="ghost">📸 ÜSTTEN PNG</button>
     <button id="btn-export" class="ghost">↓ JSON</button>
     <button id="btn-import" class="ghost">↑ JSON</button>
@@ -114,6 +116,26 @@
 </div>
 
 <div id="link-hint"></div>
+
+<!-- Beyin grafiği: tüm defterler tek sinir ağı görünümünde (Obsidian tarzı) -->
+<div id="brain">
+    <canvas id="brain-cv"></canvas>
+    <div id="brain-bar">
+        <span id="brain-title">🧠 Beyin Grafiği — düğüme tıkla: git · sürükle: kaydır · tekerlek: yakınlaş</span>
+        <button id="brain-close" class="ghost">✕ KAPAT</button>
+    </div>
+</div>
+
+<!-- Defterler arası bağlantı seçici -->
+<div id="xlink">
+    <div class="card panel">
+        <h2>🧠 Defterler Arası Bağlantı</h2>
+        <p id="xlink-src"></p>
+        <input id="xlink-in" maxlength="80" placeholder="tüm defterlerde başlık ara...">
+        <div id="xlink-res"></div>
+        <button id="xlink-close" class="ghost">✕ KAPAT</button>
+    </div>
+</div>
 
 <!-- Kimlik: giriş / kayıt / hesapsız (yerel) devam -->
 <div id="auth">

@@ -2,7 +2,7 @@
    UIManager — paneller, hızlı menü, YAKLAŞ butonu, global arama, zaman tüneli,
    kuantum bağlantı arayüzü, 2B indirgeme, paylaşım, URL durumu, içe/dışa aktarım
    ============================================================================= */
-import { SLOT_COUNT, REDUCED, genId, sanitizeHtml } from './config.js';
+import { SLOT_COUNT, REDUCED, genId, sanitizeHtml, stripHtml, hashStr, PALETTE } from './config.js';
 import * as D from './DataManager.js';
 import { State } from './DataManager.js';
 import * as Engine from './Engine3D.js';
@@ -26,12 +26,15 @@ export function init(){
     Controls.setHandlers(hoverCheck, clickCheck);
     Controls.setOverlayCheck(()=> $('twod').classList.contains('open') ||
                                   $('tunnel').classList.contains('open') ||
+                                  $('brain').classList.contains('open') ||
+                                  $('xlink').classList.contains('open') ||
                                   $('auth').classList.contains('show'));
     D.onSaveState(setSaveDot);
     setSaveDot(State.serverOn ? 'saved' : 'off'); // probe UI'dan önce koştu; ilk durumu şimdi bas
 
     bindPanel(); bindQuick(); bindCard(); bindSearch(); bindModes(); bindAuth();
     bindButtons(); bindTunnel(); bindTwod(); bindFiles(); bindKeys();
+    bindBrain(); bindXlink();
     window.addEventListener('mousemove', tipMove);
     window.addEventListener('resize', ()=>{ if($('twod').classList.contains('open')) drawTwod(); });
 }
@@ -166,7 +169,9 @@ function hoverCheck(e){
             const a=Engine.atomInst[hA];
             if(a){
                 if(a.kind==='portal'){
-                    txt='🕳 '+D.address(a.node)+(a.node.title?' — '+a.node.title:'')+' · tıkla, ışınlan';
+                    txt=a.xnb!=null
+                        ? '🧠 '+State.notebooks[a.xnb].name+' → '+D.address(a.node)+(a.node.title?' — '+a.node.title:'')+' · tıkla, deftere ışınlan'
+                        : '🕳 '+D.address(a.node)+(a.node.title?' — '+a.node.title:'')+' · tıkla, ışınlan';
                 }else{
                     txt=D.address(a.node)+(a.node.title?' — '+a.node.title:' — isimsiz');
                     if(a.kind!=='open') cardShow(a.node, a.pos);
@@ -202,6 +207,13 @@ function clickCheck(e){
         }
         if(a.kind==='portal'){ // ışınlan!
             const t=a.node;
+            if(a.xnb!=null && a.xnb!==State.nbIndex){ // defterler arası geçiş
+                toast('🧠 Defterler arası ışınlanıyorsun → '+State.notebooks[a.xnb].name);
+                switchNotebook(a.xnb).then(()=>{
+                    State.selNode=t; Engine.buildView(t); Controls.spawnNear(t); updatePanel();
+                });
+                return;
+            }
             toast('🕳 Işınlanıyorsun → '+D.address(t));
             State.selNode=t;
             Engine.buildView(t);
@@ -406,6 +418,29 @@ function bindPanel(){
         $('link-hint').textContent='🕳 '+D.address(State.selNode)+' için hedef atomu seç (ESC: vazgeç)';
         toast('Bağlantı modu: hedef atoma tıkla.');
     };
+    $('link-x').onclick=openXlink;
+    /* [[wikilink]] (Obsidian): gövdede [[Başlık]] geçen notlara odak
+       kaybında otomatik solucan deliği kurulur — defterler arası dahil */
+    bodyEd.addEventListener('blur', parseWikilinks);
+}
+async function parseWikilinks(){
+    const sel=State.selNode; if(!sel) return;
+    const names=[...new Set([...stripHtml(sel.html).matchAll(/\[\[([^\[\]]{1,80})\]\]/g)]
+        .map(m=>m[1].trim()).filter(Boolean))];
+    if(!names.length) return;
+    await D.ensureAllRoots();
+    let made=0;
+    for(const name of names){
+        const hit=D.nodeByTitle(name, sel);
+        if(!hit) continue;
+        if(sel.links.some(l=>D.linkNodeId(l)===hit.node.id)) continue; // zaten bağlı
+        D.linkNodesX(sel, hit.node, State.notebooks[hit.nbIndex]);
+        made++;
+    }
+    if(made){
+        Engine.buildView(State.openNode); renderSublist();
+        toast('🧠 '+made+' [[wikilink]] solucan deliğine dönüştü.');
+    }
 }
 export function endLinkMode(){ State.linkFrom=null; document.body.classList.remove('linking'); }
 
@@ -541,17 +576,29 @@ function renderSublist(){
         };
         row.append(num,nm,cnt,go,del); el.appendChild(row);
     });
-    /* bu düğümün solucan delikleri */
+    /* bu düğümün bağlantıları (solucan delikleri — defterler arası dahil) */
     if(sel.links.length){
-        const h=document.createElement('h4'); h.textContent='// Solucan Delikleri 🕳'; h.style.marginTop='6px';
+        const h=document.createElement('h4'); h.textContent='// Bağlantılar 🕳 ⇄ 🧠'; h.style.marginTop='6px';
         el.appendChild(h);
         sel.links.forEach(id=>{
-            const t=D.nodeById(id); if(!t) return;
+            const r=D.resolveLink(id); if(!r) return;
+            const t=r.node, cross=r.nbIndex!==State.nbIndex;
             const row=document.createElement('div'); row.className='sub';
+            if(cross){
+                const nb=document.createElement('span'); nb.className='xnb';
+                nb.textContent='🧠 '+State.notebooks[r.nbIndex].name;
+                nb.title=State.notebooks[r.nbIndex].name;
+                row.appendChild(nb);
+            }
             const num=document.createElement('span'); num.className='num'; num.textContent=D.address(t);
             const nm=document.createElement('span'); nm.className='nm'; nm.textContent=t.title||'isimsiz';
             const tp=document.createElement('span'); tp.className='tp'; tp.textContent='ışınlan ⇄';
-            tp.onclick=()=>{ State.selNode=t; Engine.buildView(t); Controls.spawnNear(t); toast('🕳 Işınlandın → '+D.address(t)); };
+            tp.onclick=async()=>{
+                if(cross) await switchNotebook(r.nbIndex);
+                State.selNode=t; Engine.buildView(t); Controls.spawnNear(t); updatePanel();
+                toast(cross?('🧠 Işınlandın → '+State.notebooks[r.nbIndex].name+' · '+D.address(t))
+                           :('🕳 Işınlandın → '+D.address(t)));
+            };
             const del=document.createElement('span'); del.className='del'; del.textContent='×';
             del.onclick=()=>{ D.unlink(sel,id); Engine.buildView(State.openNode); updatePanel(); };
             row.append(num,nm,tp,del); el.appendChild(row);
@@ -642,6 +689,8 @@ function bindKeys(){
             endLinkMode();
             $('twod').classList.remove('open');
             $('tunnel').classList.remove('open');
+            $('xlink').classList.remove('open');
+            if(brainOn) closeBrain();
         }
         if(inField) return;
         if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='z' && !e.shiftKey){
@@ -840,6 +889,208 @@ function drawTwod(){
     })(twodRoot,cx,cy,R0,0);
     tctx.fillStyle='#3d4452'; tctx.font='10px Courier New'; tctx.textAlign='left';
     tctx.fillText('3D Kuantum Not Evreni · küme–alt küme indirgemesi · '+new Date().toLocaleDateString('tr-TR'),16,innerHeight-16);
+}
+
+/* ============================== DEFTERLER ARASI BAĞLANTI SEÇİCİ (Obsidian) */
+function bindXlink(){
+    $('xlink-close').onclick=()=>$('xlink').classList.remove('open');
+    let t=null;
+    $('xlink-in').addEventListener('input',()=>{ clearTimeout(t); t=setTimeout(renderXlinkResults,200); });
+}
+async function openXlink(){
+    if(!State.selNode) return;
+    await D.ensureAllRoots();
+    $('xlink-src').textContent='Kaynak: '+D.address(State.selNode)+' — '+(State.selNode.title||'isimsiz')+
+        ' ('+D.currentNb().name+') · hedefi seç, çift yönlü solucan deliği kurulur';
+    $('xlink-in').value='';
+    $('xlink').classList.add('open');
+    renderXlinkResults();
+    $('xlink-in').focus();
+}
+function renderXlinkResults(){
+    const q=$('xlink-in').value.trim().toLowerCase();
+    const res=$('xlink-res'); res.innerHTML='';
+    const sel=State.selNode;
+    let count=0;
+    State.notebooks.forEach((nb,i)=>{
+        if(!nb.root || count>=40) return;
+        (function walk(n){
+            if(count>=40) return;
+            const title=(n.title||'').toLowerCase();
+            if(n!==sel && (!q || title.includes(q)) && (q || n.parent==null || D.filledSlots(n).length)){
+                /* boş sorguda gürültüyü kısmak için kök + dallanan düğümler önce */
+                const row=document.createElement('div'); row.className='xr';
+                const bn=document.createElement('span'); bn.className='nb'; bn.textContent=nb.name;
+                const num=document.createElement('span'); num.className='num'; num.textContent=D.address(n);
+                const tt=document.createElement('span'); tt.className='t'; tt.textContent=n.title||'isimsiz';
+                row.append(bn,num,tt);
+                row.onclick=()=>{
+                    if(D.linkNodesX(sel, n, nb)){
+                        toast('🧠 Bağlandı: '+(sel.title||D.address(sel))+' ⇄ '+(n.title||D.address(n))+
+                              (nb!==D.currentNb()?' ('+nb.name+')':''));
+                        Engine.buildView(State.openNode); updatePanel();
+                    }
+                    $('xlink').classList.remove('open');
+                };
+                res.appendChild(row); count++;
+            }
+            D.filledSlots(n).forEach(k=>walk(n.slots[k]));
+        })(nb.root);
+    });
+    if(!count) res.innerHTML='<p class="empty" style="font-size:11px;color:#3d4452">eşleşen not yok</p>';
+}
+
+/* ========================================== BEYİN GRAFİĞİ (Obsidian graph) ==
+   Tüm defterler tek kuvvet-yönelimli grafikte: düğüm rengi = defter,
+   soluk kenar = ağaç bağı, mor = solucan deliği, macenta kesikli =
+   defterler arası köprü. Tıkla → o deftere geç ve düğüme uç.            */
+let brainOn=false, bG=null, bView={x:0,y:0,s:1}, bDrag=null, bHover=-1, bRAF=0, bIter=0;
+const nbColor=i=>'#'+PALETTE[i%PALETTE.length].toString(16).padStart(6,'0');
+function bindBrain(){
+    $('btn-brain').onclick=openBrain;
+    $('brain-close').onclick=closeBrain;
+    const cv=$('brain-cv');
+    cv.addEventListener('wheel',e=>{
+        e.preventDefault();
+        const k=Math.exp(-e.deltaY*0.0012), s2=Math.min(Math.max(bView.s*k,0.15),6);
+        /* imlece doğru yakınlaş */
+        bView.x=e.clientX-(e.clientX-bView.x)*(s2/bView.s);
+        bView.y=e.clientY-(e.clientY-bView.y)*(s2/bView.s);
+        bView.s=s2;
+    },{passive:false});
+    cv.addEventListener('mousedown',e=>{ bDrag={x:e.clientX,y:e.clientY,moved:false}; cv.classList.add('dragging'); });
+    window.addEventListener('mousemove',e=>{
+        if(!brainOn) return;
+        if(bDrag){
+            if(Math.hypot(e.clientX-bDrag.x,e.clientY-bDrag.y)>4) bDrag.moved=true;
+            bView.x+=e.movementX; bView.y+=e.movementY;
+        } else bHover=pickBrain(e);
+    });
+    window.addEventListener('mouseup',e=>{
+        if(!brainOn) return;
+        $('brain-cv').classList.remove('dragging');
+        if(bDrag && !bDrag.moved){ const i=pickBrain(e); if(i>=0) gotoBrainNode(i); }
+        bDrag=null;
+    });
+}
+async function openBrain(){
+    toast('🧠 Beyin ağı kuruluyor…');
+    await D.ensureAllRoots();
+    bG=D.brainGraph();
+    if(bG.capped) toast('Grafik ilk '+bG.nodes.length+' düğümle sınırlandı.');
+    /* başlangıç: her defter çember üzerinde bir küme merkezi + saçılım */
+    const K=Math.max(State.notebooks.length,1), spread=K>1?280:0;
+    bG.anchors=[];
+    for(let i=0;i<K;i++){ const a=i/K*Math.PI*2;
+        bG.anchors.push({x:Math.cos(a)*spread, y:Math.sin(a)*spread}); }
+    bG.nodes.forEach(n=>{
+        const c=bG.anchors[n.nbIndex]||{x:0,y:0}, h=hashStr(n.node.id);
+        n.x=c.x+((h%1000)/1000-0.5)*240;
+        n.y=c.y+(((h/1000|0)%1000)/1000-0.5)*240;
+        n.vx=0; n.vy=0;
+    });
+    brainOn=true; bHover=-1; bIter=REDUCED?40:170;
+    bView={x:innerWidth/2, y:innerHeight/2, s:1};
+    $('brain').classList.add('open');
+    cancelAnimationFrame(bRAF);
+    (function loop(){
+        if(!brainOn) return;
+        if(bIter>0){ stepBrain(bIter>90?3:1); bIter--; }
+        drawBrain();
+        bRAF=requestAnimationFrame(loop);
+    })();
+}
+function closeBrain(){ brainOn=false; $('brain').classList.remove('open'); cancelAnimationFrame(bRAF); }
+function stepBrain(steps){
+    const N=bG.nodes, E=bG.edges;
+    for(let s=0;s<steps;s++){
+        for(let i=0;i<N.length;i++){ const a=N[i]; // itme
+            for(let j=i+1;j<N.length;j++){ const b=N[j];
+                let dx=a.x-b.x, dy=a.y-b.y, d2=dx*dx+dy*dy;
+                if(d2<0.01){ dx=Math.random()-0.5; dy=Math.random()-0.5; d2=1; }
+                if(d2>62500) continue;
+                const f=760/d2;
+                a.vx+=dx*f; a.vy+=dy*f; b.vx-=dx*f; b.vy-=dy*f;
+            }
+        }
+        for(const e of E){ // yaylar: ağaç kısa, solucan/köprü uzun
+            const a=N[e.a], b=N[e.b];
+            const dx=b.x-a.x, dy=b.y-a.y, d=Math.hypot(dx,dy)||1;
+            const rest=e.type==='tree'?44:130;
+            const f=(d-rest)*(e.type==='tree'?0.014:0.006)/d;
+            a.vx+=dx*f; a.vy+=dy*f; b.vx-=dx*f; b.vy-=dy*f;
+        }
+        for(const n of N){ // küme çekimi + sönümleme
+            const c=bG.anchors[n.nbIndex]||{x:0,y:0};
+            n.vx+=(c.x-n.x)*0.0022; n.vy+=(c.y-n.y)*0.0022;
+            n.vx*=0.82; n.vy*=0.82;
+            n.x+=Math.max(-14,Math.min(14,n.vx));
+            n.y+=Math.max(-14,Math.min(14,n.vy));
+        }
+    }
+}
+function drawBrain(){
+    const cv=$('brain-cv'), x=cv.getContext('2d');
+    const dpr=Math.min(devicePixelRatio,2);
+    if(cv.width!==innerWidth*dpr){ cv.width=innerWidth*dpr; cv.height=innerHeight*dpr;
+        cv.style.width=innerWidth+'px'; cv.style.height=innerHeight+'px'; }
+    x.setTransform(dpr,0,0,dpr,0,0);
+    x.fillStyle='#020208'; x.fillRect(0,0,innerWidth,innerHeight);
+    x.translate(bView.x,bView.y); x.scale(bView.s,bView.s);
+    const N=bG.nodes;
+    for(const e of bG.edges){ // kenarlar
+        const a=N[e.a], b=N[e.b];
+        if(e.type==='tree'){ x.strokeStyle='rgba(120,130,160,0.16)'; x.lineWidth=1/bView.s; x.setLineDash([]); }
+        else if(e.type==='worm'){ x.strokeStyle='rgba(125,95,255,0.55)'; x.lineWidth=1.4/bView.s; x.setLineDash([]); }
+        else{ x.strokeStyle='rgba(255,95,208,0.75)'; x.lineWidth=1.8/bView.s; x.setLineDash([6/bView.s,5/bView.s]); }
+        x.beginPath(); x.moveTo(a.x,a.y); x.lineTo(b.x,b.y); x.stroke();
+    }
+    x.setLineDash([]);
+    N.forEach((n,i)=>{ // düğümler: renk = defter, boyut = derece
+        const r=(n.isRoot?7:3)+Math.min(n.deg,10)*0.55;
+        x.fillStyle=nbColor(n.nbIndex);
+        x.beginPath(); x.arc(n.x,n.y,r,0,Math.PI*2); x.fill();
+        if(i===bHover || n.node===State.selNode){
+            x.strokeStyle='#fff'; x.lineWidth=1.4/bView.s;
+            x.beginPath(); x.arc(n.x,n.y,r+3/bView.s,0,Math.PI*2); x.stroke();
+        }
+        if(n.isRoot || i===bHover || (n.deg>=5 && bView.s>0.5)){
+            x.fillStyle=n.isRoot?nbColor(n.nbIndex):'#a4b0be';
+            x.font=(n.isRoot?'bold 13px':'10px')+' Courier New'; x.textAlign='center';
+            const t=n.isRoot?State.notebooks[n.nbIndex].name:(n.node.title||D.address(n.node));
+            x.fillText(t.length>24?t.slice(0,23)+'…':t, n.x, n.y+r+12/bView.s);
+        }
+    });
+    x.setTransform(dpr,0,0,dpr,0,0); // gösterge
+    x.font='10px Courier New'; x.textAlign='left';
+    State.notebooks.forEach((nb,i)=>{
+        x.fillStyle=nbColor(i);
+        x.fillText('● '+nb.name, 16, innerHeight-34-i*14);
+    });
+    x.fillStyle='#3d4452';
+    x.fillText('🧠 '+N.length+' düğüm · mor: solucan deliği · macenta kesikli: defterler arası köprü', 16, innerHeight-16);
+}
+function pickBrain(e){
+    if(!bG) return -1;
+    const wx=(e.clientX-bView.x)/bView.s, wy=(e.clientY-bView.y)/bView.s;
+    let best=-1, bd=Infinity;
+    bG.nodes.forEach((n,i)=>{
+        const r=(n.isRoot?7:3)+Math.min(n.deg,10)*0.55+6/bView.s;
+        const d=Math.hypot(wx-n.x,wy-n.y);
+        if(d<r && d<bd){ bd=d; best=i; }
+    });
+    $('brain-cv').style.cursor=best>=0?'pointer':'grab';
+    return best;
+}
+async function gotoBrainNode(i){
+    const rec=bG.nodes[i];
+    closeBrain();
+    if(rec.nbIndex!==State.nbIndex) await switchNotebook(rec.nbIndex);
+    State.selNode=rec.node;
+    Engine.buildView(rec.node);
+    Controls.spawnNear(rec.node);
+    updatePanel();
+    toast('🧠 '+State.notebooks[rec.nbIndex].name+' · '+D.address(rec.node)+(rec.node.title?' — '+rec.node.title:''));
 }
 
 /* ============================================================ TOAST + TIP */

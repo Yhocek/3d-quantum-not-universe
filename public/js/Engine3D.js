@@ -5,7 +5,7 @@
 import * as THREE from './three.js';
 import { JSM_BASE } from './three.js';
 import { SLOT_COUNT, SHRINK, SPHERE_K, PALETTE, hashStr, truncTitle } from './config.js';
-import { State, SLOT_DIRS, worldOf, address, filledSlots, nodeById, currentNb, inTreeOf } from './DataManager.js';
+import { State, SLOT_DIRS, worldOf, address, filledSlots, nodeById, currentNb, inTreeOf, resolveLink } from './DataManager.js';
 
 export let renderer, camera, scene, canvas;
 export const atomInst=[], slotInst=[];
@@ -194,8 +194,19 @@ export function buildView(node){
         n:node.slots[i], p:C.clone().addScaledVector(SLOT_DIRS[i],R), r:R*SHRINK*SPHERE_K }));
     linkSources.forEach(src=>{
         (src.n.links||[]).forEach(id=>{
-            const target=nodeById(id);
-            if(!target || target===src.n) return;
+            const RL=resolveLink(id);
+            if(!RL || RL.node===src.n) return;
+            const target=RL.node;
+            if(RL.nbIndex!==State.nbIndex){
+                /* defterler arası (Obsidian tarzı): hedef başka evrende —
+                   çizgi çizilmez, macenta portal defter geçişini temsil eder */
+                const ang=(hashStr(id)%628)/100;
+                const dir=new THREE.Vector3(Math.cos(ang),0.35,Math.sin(ang)).normalize();
+                atomInst.push({node:target, via:src.n, xnb:RL.nbIndex,
+                               pos:src.p.clone().addScaledVector(dir, src.r*3.2),
+                               r:src.r*0.55, color:new THREE.Color(0xff5fd0), kind:'portal'});
+                return;
+            }
             const TW=worldOf(target);
             wormPos.push(src.p.x,src.p.y,src.p.z, TW.pos.x,TW.pos.y,TW.pos.z);
             const dir=TW.pos.clone().sub(src.p).normalize();

@@ -65,8 +65,9 @@ export function worldOf(n){
 let nodeIndex = new Map();
 export function rebuildIndex(){
     nodeIndex = new Map();
-    const root=currentRoot(); if(!root) return;
-    (function walk(n){ nodeIndex.set(n.id,n); filledSlots(n).forEach(i=>walk(n.slots[i])); })(root);
+    const root=currentRoot();
+    if(root) (function walk(n){ nodeIndex.set(n.id,n); filledSlots(n).forEach(i=>walk(n.slots[i])); })(root);
+    rebuildGlobalIndex(); // defterler arası bağlantı çözümü taze kalsın
 }
 export function nodeById(id){ return nodeIndex.get(id)||null; }
 
@@ -387,9 +388,105 @@ export function linkNodes(a,b){
     markDirty();
     return true;
 }
-export function unlink(a,id){
-    a.links=a.links.filter(x=>x!==id);
-    const other=nodeById(id);
-    if(other) other.links=other.links.filter(x=>x!==a.id);
+export function unlink(a,ref){
+    a.links=a.links.filter(x=>x!==ref);
+    const r=resolveLink(ref);
+    if(r){
+        r.node.links=r.node.links.filter(x=>linkNodeId(x)!==a.id);
+        if(r.nbIndex!==State.nbIndex) saveOther(State.notebooks[r.nbIndex]);
+    }
     markDirty();
+}
+
+/* ============================================================================
+   OBSİDİYEN TARZI BEYİN AĞI — defterler arası bağlantılar + global grafik
+   Bağlantı biçimi: aynı defter → "nodeId" (eski biçim), defterler arası →
+   "nbKey:nodeId". nbKey = sunucu defter id'si ya da yerel localKey; sunucu
+   şeması değişmez (links: string ≤64). Tüm bağlantılar çift yönlüdür.
+   ============================================================================ */
+export function nbKey(nb){
+    if(nb.id) return nb.id;
+    if(!nb.localKey) nb.localKey=genId('nb');
+    return nb.localKey;
+}
+export const linkNodeId = l => l.includes(':') ? l.split(':').pop() : l;
+export async function ensureAllRoots(){
+    for(const nb of State.notebooks) await ensureRoot(nb);
+    rebuildGlobalIndex();
+}
+let globalIndex=new Map(); // nodeId → {node, nbIndex} (yüklü tüm defterler)
+export function rebuildGlobalIndex(){
+    globalIndex=new Map();
+    State.notebooks.forEach((nb,i)=>{
+        if(!nb.root) return;
+        (function walk(n){ globalIndex.set(n.id,{node:n,nbIndex:i}); filledSlots(n).forEach(k=>walk(n.slots[k])); })(nb.root);
+    });
+}
+/* "nbKey:nodeId" ya da "nodeId" → {node, nbIndex} | null */
+export function resolveLink(l){
+    const nid=linkNodeId(l);
+    const local=nodeById(nid);
+    if(local) return {node:local, nbIndex:State.nbIndex};
+    return globalIndex.get(nid)||null;
+}
+/* a (geçerli defter) ⇄ b (nbB defteri) — defterler arası solucan deliği */
+export function linkNodesX(a, b, nbB){
+    if(!a||!b||a===b) return false;
+    const nbA=currentNb();
+    const refB = nbB===nbA ? b.id : nbKey(nbB)+':'+b.id;
+    const refA = nbB===nbA ? a.id : nbKey(nbA)+':'+a.id;
+    if(!a.links.includes(refB)) a.links.push(refB);
+    if(!b.links.includes(refA)) b.links.push(refA);
+    rebuildGlobalIndex();
+    markDirty();
+    if(nbB!==nbA) saveOther(nbB);
+    return true;
+}
+/* geçerli olmayan bir defteri kalıcıla (IndexedDB aynası + sunucu) */
+export async function saveOther(nb){
+    if(!nb.localKey) nb.localKey = nb.id ? ('srv-'+nb.id) : genId('nb');
+    try{ await idbPutTree({key:nb.localKey, id:nb.id||null, name:nb.name, root:toStd(nb.root), ts:Date.now()}); }catch(e){}
+    if(State.serverOn && State.user && nb.id){
+        try{ await api('notebooks/'+nb.id,{method:'PUT',body:JSON.stringify({name:nb.name, root:toStd(nb.root)})}); }catch(e){}
+    }
+}
+/* başlığa göre tüm defterlerde not ara ([[wikilink]] hedef çözümü) */
+export function nodeByTitle(title, exclude){
+    const q=String(title).trim().toLowerCase();
+    if(!q) return null;
+    let hit=null;
+    State.notebooks.forEach((nb,i)=>{
+        if(hit||!nb.root) return;
+        (function walk(n){
+            if(hit) return;
+            if(n!==exclude && (n.title||'').trim().toLowerCase()===q){ hit={node:n, nbIndex:i}; return; }
+            filledSlots(n).forEach(k=>walk(n.slots[k]));
+        })(nb.root);
+    });
+    return hit;
+}
+/* beyin grafiği: tüm defterler tek grafikte — düğümler + ağaç/solucan kenarları */
+export function brainGraph(cap=900){
+    const nodes=[], edges=[], idx=new Map();
+    State.notebooks.forEach((nb,i)=>{
+        if(!nb.root) return;
+        (function walk(n,parent){
+            if(nodes.length>=cap) return;
+            const me=nodes.length;
+            idx.set(n.id, me);
+            nodes.push({node:n, nbIndex:i, deg:0, isRoot:parent==null});
+            if(parent!=null){ edges.push({a:parent,b:me,type:'tree'}); nodes[parent].deg++; nodes[me].deg++; }
+            filledSlots(n).forEach(k=>walk(n.slots[k], me));
+        })(nb.root, null);
+    });
+    nodes.forEach((rec,ai)=>{ // solucan delikleri (her çift bir kez)
+        (rec.node.links||[]).forEach(l=>{
+            const bi=idx.get(linkNodeId(l));
+            if(bi!=null && bi>ai){
+                edges.push({a:ai,b:bi,type:nodes[bi].nbIndex!==rec.nbIndex?'cross':'worm'});
+                nodes[ai].deg++; nodes[bi].deg++;
+            }
+        });
+    });
+    return {nodes, edges, capped:nodes.length>=cap};
 }

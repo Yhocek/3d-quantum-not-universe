@@ -34,6 +34,7 @@
 | 🤖 **MCP Server** | Zero-dependency MCP bridge (`mcp-server.js`) — Claude (or any LLM) connects to your universe: read, search, add, update notes |
 | 🗂️ **Auto-Categorization** | Connected LLMs file conversations & code into a hierarchy (`Dersler/Matematik/Calculus/Calculus1 Notları`) via `file_note` — the universe grows itself |
 | 🛣️ **CH Route Search** | Shared maps are searchable by LLMs with real **Contraction Hierarchies** — shortest routes over tree bonds + wormholes |
+| 🧠 **Brain Network** | Obsidian-style: cross-notebook wormholes, `[[wikilinks]]`, and a force-directed **brain graph** of all notebooks as one neural network |
 | 📐 **Screen Sync** | Adaptive FOV for ultrawide/curved monitors, DPR re-sync across monitors, dynamic viewport + safe-area + pinch-zoom on mobile |
 | 📸 **PNG Export** | Top-down orthographic 3D capture + 2D map download |
 | 🔄 **JSON Import/Export** | Portable standard schema (`id/label/type/size/children`) |
@@ -260,6 +261,7 @@ Working inside this repo? Claude Code auto-discovers `.mcp.json` — just export
 | `create_notebook` | New empty notebook |
 | `create_share_link` | Public share URL for a subtree |
 | `file_note` | **Auto-categorization**: files a note under a category path, creating missing levels |
+| `link_notes` | Bidirectional wormhole between two notes — **cross-notebook** with `target_notebook_id` |
 | `read_share` | Read any public shared map (`?s=...` URL or id) — no login needed |
 | `search_share` | Search a shared map; routes computed with **Contraction Hierarchies** |
 
@@ -283,6 +285,16 @@ When someone shares a map with you (`?s=...` link), a connected LLM can search i
 ```
 
 — two hops through a wormhole instead of four down the tree. The CH index is built once per share and cached.
+
+### 🧠 Obsidian-Style Brain Network
+
+Notebooks are no longer isolated universes — they weave into one multi-dimensional neural network, the way an [Obsidian](https://obsidian.md) vault does:
+
+- **Cross-notebook wormholes** — the note panel's *"🧠 Defterler Arası Bağla"* button opens a picker that searches every notebook; one click creates a bidirectional link. In 3D, cross-notebook links appear as **magenta portals**: click one and you teleport into the other notebook, straight to the target note. Link format is `notebookId:nodeId` (≤64 chars), so the server schema is untouched.
+- **`[[Wikilinks]]`** — type `[[Projeler]]` anywhere in a note body; on blur, every `[[title]]` that matches an existing note (in *any* notebook) automatically becomes a wormhole. The body text stays as you wrote it — the graph grows underneath.
+- **🧠 Brain graph view** — the BEYİN button renders every notebook in a single force-directed graph (pure Canvas 2D): node color = notebook, node size = degree, faint edges = tree bonds, purple = wormholes, dashed magenta = cross-notebook bridges. Wheel to zoom, drag to pan, click a node to jump there in 3D — across notebooks if needed.
+- **Links panel** — each note lists its connections with a notebook badge on foreign ones; *ışınlan ⇄* teleports across notebooks.
+- **LLMs weave too** — the MCP `link_notes` tool (with `target_notebook_id`) lets Claude connect related concepts across notebooks ("Calculus" ⇄ "Fizik/Hareket"), and the server instructions tell it to do so — your knowledge self-organizes into a brain.
 
 ---
 

@@ -221,6 +221,34 @@
 @keyframes cpulse{50%{border-color:#7dffb0;color:#7dffb0}}
 @media (prefers-reduced-motion:reduce){#slot-callout{animation:none}}
 
+/* ---------- v8: BEYİN GRAFİĞİ + DEFTERLER ARASI BAĞLANTI ---------- */
+#brain{position:fixed;inset:0;background:var(--bg);z-index:22;display:none}
+#brain.open{display:block}
+#brain-cv{position:absolute;inset:0;cursor:grab}
+#brain-cv.dragging{cursor:grabbing}
+#brain-bar{position:absolute;top:14px;left:14px;right:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+#brain-title{color:#ff5fd0;font-size:12px;margin-right:auto;background:var(--panel);
+    border:2px dashed var(--line);padding:8px 12px}
+
+#xlink{position:fixed;inset:0;background:rgba(2,2,8,.85);z-index:30;display:none;
+    align-items:center;justify-content:center}
+#xlink.open{display:flex}
+#xlink .card{width:min(460px,92vw);max-height:80vh;display:flex;flex-direction:column;gap:8px;border-color:#ff5fd0}
+#xlink .card h2{color:#ff5fd0}
+#xlink-src{font-size:11px;color:var(--amber);margin:0}
+#xlink input{background:#00000066;border:1px dashed var(--line);color:#fff;
+    font-family:inherit;font-size:12px;padding:8px;outline:none}
+#xlink input:focus{border-color:#ff5fd0}
+#xlink-res{overflow-y:auto;min-height:60px;max-height:46vh}
+.xr{display:flex;gap:8px;font-size:11px;padding:5px 2px;border-bottom:1px dotted #14141f;
+    cursor:pointer;align-items:baseline}
+.xr:hover{background:#0a0a18}
+.xr .nb{color:#ff5fd0;white-space:nowrap;max-width:120px;overflow:hidden;text-overflow:ellipsis}
+.xr .num{color:var(--amber);white-space:nowrap}
+.xr .t{color:var(--ink);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sub .xnb{color:#ff5fd0;font-size:10px;max-width:90px;overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap}
+
 /* ---------- v7: KİMLİK KATMANI ---------- */
 #auth{position:fixed;inset:0;background:rgba(2,2,8,.88);z-index:40;display:none;
     align-items:center;justify-content:center}
