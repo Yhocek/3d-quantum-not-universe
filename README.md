@@ -38,6 +38,7 @@
 | 🎨 **Dark & Light Themes** | One-click toggle (◐), system-preference default, persisted; 3D scene, 2D map and brain graph all follow |
 | 🌍 **English UI** | All in-app text is English — use Google Translate for any language |
 | ⚡ **Performance-First** | Idle frame limiter (60→30→15 fps), dirty-flag graph redraws, visibility-gated sync polling — GPU/CPU stay cool |
+| 📈 **Note-Driven Trading** | Your strategy notebook is a program: notes = nested functions, Claude walks it against live DexScreener data and logs which branch fired — recommendations only, you execute |
 | 🛣️ **CH Route Search** | Shared maps are searchable by LLMs with real **Contraction Hierarchies** — shortest routes over tree bonds + wormholes |
 | 🧠 **Brain Network** | Obsidian-style: cross-notebook wormholes, `[[wikilinks]]`, and a force-directed **brain graph** of all notebooks as one neural network |
 | 📐 **Screen Sync** | Adaptive FOV for ultrawide/curved monitors, DPR re-sync across monitors, dynamic viewport + safe-area + pinch-zoom on mobile |
@@ -250,6 +251,7 @@ The renderer keeps itself synchronized with whatever screen it lands on:
 | `NOTE_BASE_URL` | `http://localhost:3000` | *(MCP)* Site URL the MCP bridge connects to |
 | `NOTE_USER` / `NOTE_PASS` | — | *(MCP)* Account credentials for the MCP bridge |
 | `NOTE_REGISTER` | — | *(MCP)* Set to `1` to auto-register the account on first run |
+| `DEX_API_BASE` | `https://api.dexscreener.com` | *(MCP)* Market data API base (mock/self-host override) |
 
 ---
 
@@ -284,6 +286,9 @@ Working inside this repo? Claude Code auto-discovers `.mcp.json` — just export
 | `create_share_link` | Public share URL for a subtree |
 | `file_note` | **Auto-categorization**: files a note under a category path, creating missing levels |
 | `link_notes` | Bidirectional wormhole between two notes — **cross-notebook** with `target_notebook_id` |
+| `get_market` | Live market data from the public DexScreener API (price, Δ%, volume, liquidity) |
+| `read_strategy` | Strategy notebook as a nested-function view — bodies are condition/action lines |
+| `log_trade_decision` | Files a recommendation into `Trade Journal/<SYMBOL>` + wormhole to the fired node |
 | `read_share` | Read any public shared map (`?s=...` URL or id) — no login needed |
 | `search_share` | Search a shared map; routes computed with **Contraction Hierarchies** |
 
@@ -297,6 +302,30 @@ file_note(category_path: "Courses/Math/Calculus/Calculus1 Notes",
 ```
 
 Missing category nodes are created on the fly; existing ones are matched case-insensitively and reused, so repeated sessions keep building the *same* tree instead of duplicating branches. Everything lands in the **"Claude Universe"** notebook by default (override with `notebook`). The result: over time your conversations self-organize into a giant navigable 3D universe — `Courses → Math → Calculus → Calculus1 Notes` — while manual editing in the browser keeps working exactly as before; the LLM is told to respect the structure you shape by hand. And it is **live**: the browser polls `updatedAt` stamps every 6 s (only while the tab is visible and you are not mid-edit), so notes Claude writes appear in the open 3D view within seconds.
+
+### 📈 Note-Driven Trading — Strategy as Nested Functions
+
+Keep a notebook named **Strategy** whose notes read like a program — every note is a function, its body lines are conditions and actions, its children are sub-functions:
+
+```
+0.1  Trend Following()
+   | IF 24h change > +5% AND 24h volume > $1M THEN descend
+  0.1.1  Breakout()
+     | IF 1h change > +2% THEN ACTION: buy small position, stop-loss -3%
+  0.1.2  Pullback()
+     | IF 1h change < -1% while 24h still > +5% THEN ACTION: wait for support retest
+0.2  Mean Reversion()
+   | IF 24h change < -8% THEN descend
+```
+
+Claude (via MCP) then acts as the interpreter, Obsidian + Claude style:
+
+1. `read_strategy` — loads the tree in the nested-function view above.
+2. `get_market("SOL/USDC")` — pulls live price / Δ% / volume / liquidity / buy-sell counts from the **public DexScreener API** (read-only, no key; override with `DEX_API_BASE`).
+3. Claude walks the tree **top-down like a call stack**, descending only into branches whose written conditions match the data, and reports which sub-function fired and what it prescribes.
+4. `log_trade_decision` — the conclusion lands in `Trade Journal/<SYMBOL>` with route, reasoning and market snapshot, **wormhole-linked to the strategy node that fired** — so on the brain graph you literally see which parts of your strategy have been firing.
+
+> ⚠️ **Recommendations only.** This bridge never places orders and holds no exchange or brokerage credentials — TradingView and Robinhood offer no official public trading APIs, and unofficial ones risk your account. You review each journal entry and execute manually on your platform. Nothing here is financial advice; strategies fire exactly as *you* wrote them.
 
 ### 🛣️ Contraction Hierarchies — finding things in shared maps
 

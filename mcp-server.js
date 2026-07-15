@@ -74,10 +74,20 @@ function nodeAt(root, addr) {
 }
 function parentAddr(addr) { const p = String(addr).split('.'); return p.length > 1 ? p.slice(0, -1).join('.') : null; }
 function stripTags(h) { return String(h || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim(); }
+/* satır yapısını koruyarak HTML → metin (strateji gövdeleri koşul satırlarıdır) */
+function htmlToText(h) {
+    return String(h || '')
+        .replace(/<(?:br|\/p|\/h[1-6]|\/li|\/div|\/blockquote)[^>]*>/gi, '\n')
+        .replace(/<li[^>]*>/gi, '• ')
+        .replace(/<[^>]*>/g, '')
+        .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ')
+        .replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+}
 /* sunucuya yazılan gövde: istemci sanitizer'ıyla aynı beyaz liste, öznitelik yok */
 const ALLOWED = 'h1|h2|h3|p|br|b|strong|i|em|u|s|ul|ol|li|div|span|blockquote|code|pre';
 function cleanHtml(h) {
     return String(h || '')
+        .replace(/<(?![a-zA-Z/])/g, '&lt;') // "< -1%" gibi karşılaştırmalar metindir, etiket değil
         .replace(new RegExp('<(?!\\/?(?:' + ALLOWED + ')\\b)[^>]*>', 'gi'), '')
         .replace(new RegExp('<(\\/?)(' + ALLOWED + ')\\b[^>]*>', 'gi'), '<$1$2>');
 }
@@ -102,6 +112,53 @@ function firstFreeSlot(n) {
 }
 async function getNb(id) { return api('notebooks/' + encodeURIComponent(id)); }
 async function putRoot(id, root) { return api('notebooks/' + encodeURIComponent(id), { method: 'PUT', body: JSON.stringify({ root }) }); }
+
+/* ================================================== PİYASA VERİSİ (DexScreener)
+   Halka açık, anahtarsız, SALT-OKUNUR veri API'si. Bu köprü hiçbir platformda
+   emir GÖNDERMEZ — strateji değerlendirmesi ve öneri üretimi içindir;
+   işlemi kullanıcı kendi platformunda (TradingView/Robinhood/DEX) yapar.   */
+const DEX_BASE = (process.env.DEX_API_BASE || 'https://api.dexscreener.com').replace(/\/+$/, '');
+async function dexFetch(path) {
+    const res = await fetch(DEX_BASE + path, { headers: { 'Accept': 'application/json' } });
+    if (!res.ok) throw new Error('DexScreener ' + res.status);
+    return res.json();
+}
+function fmtPair(p) {
+    return {
+        pair: (p.baseToken && p.baseToken.symbol) + '/' + (p.quoteToken && p.quoteToken.symbol),
+        chain: p.chainId, dex: p.dexId,
+        priceUsd: p.priceUsd != null ? +p.priceUsd : null,
+        priceChangePct: p.priceChange || {},          // {m5,h1,h6,h24}
+        volumeUsd: p.volume || {},                    // {m5,h1,h6,h24}
+        liquidityUsd: p.liquidity ? p.liquidity.usd : null,
+        txns24h: p.txns ? p.txns.h24 : null,          // {buys,sells}
+        fdvUsd: p.fdv != null ? p.fdv : null,
+        pairAddress: p.pairAddress, url: p.url
+    };
+}
+
+/* strateji ağacı → "iç içe fonksiyon" görünümü: her düğüm bir fonksiyon,
+   gövdesi koşul/eylem satırları, çocukları alt fonksiyonlardır */
+function strategyView(n, addr, depth, lines) {
+    const pad = '  '.repeat(depth);
+    lines.push(pad + addr + '  ' + (n.label || 'untitled') + '()' +
+        ((n.links || []).length ? '  [🕳 ' + n.links.length + ' link(s)]' : ''));
+    const body = htmlToText(n.html);
+    if (body) body.split('\n').forEach(l => { if (l.trim()) lines.push(pad + '   | ' + l.trim()); });
+    for (const c of (n.children || [])) strategyView(c, addr + '.' + c.slot, depth + 1, lines);
+    return lines;
+}
+/* kategori zincirini bul/oluştur (file_note ve trade günlüğü paylaşır) */
+function ensureCategory(root, segs) {
+    let node = root, addr = '0';
+    for (const seg of segs) {
+        node.children = node.children || [];
+        let child = node.children.find(c => (c.label || '').trim().toLowerCase() === seg.toLowerCase());
+        if (!child) { child = newNode(seg, firstFreeSlot(node)); node.children.push(child); }
+        node = child; addr += '.' + node.slot;
+    }
+    return { node, addr };
+}
 
 /* ---------------------------------------- paylaşım erişimi (herkese açık) */
 async function getShare(ref) {
@@ -448,19 +505,118 @@ const TOOLS = [
             const nb = await getNb(nbMeta.id);
             const segs = String(a.category_path || '').split('/').map(s => s.trim()).filter(Boolean);
             if (!segs.length) throw new Error('category_path is empty — e.g. "Courses/Math"');
-            let node = nb.root, addr = '0';
-            for (const seg of segs) { // kategori zinciri: bul ya da oluştur
-                node.children = node.children || [];
-                let child = node.children.find(c => (c.label || '').trim().toLowerCase() === seg.toLowerCase());
-                if (!child) { child = newNode(seg, firstFreeSlot(node)); node.children.push(child); }
-                node = child; addr += '.' + node.slot;
-            }
+            const { node, addr } = ensureCategory(nb.root, segs);
             node.children = node.children || [];
             const slot = firstFreeSlot(node);
             node.children.push(newNode(a.title, slot, a.html));
             await putRoot(nbMeta.id, nb.root);
             return { ok: true, notebook: name, notebook_id: nbMeta.id,
                      category: segs.join('/'), address: addr + '.' + slot, title: a.title };
+        }
+    },
+    {
+        name: 'get_market',
+        description: 'Fetches LIVE market data from the public DexScreener API (read-only, no key). query can be a token symbol, pair ("SOL/USDC") or token address; returns the top pairs by liquidity with price, 5m/1h/6h/24h change %, volume, liquidity, buy/sell counts. Use this to evaluate the user\'s strategy notes against real market movement. This tool NEVER places orders.',
+        inputSchema: { type: 'object', properties: {
+            query: { type: 'string', description: 'Symbol, pair or token address, e.g. "SOL/USDC", "PEPE", "0x..."' },
+            pair: { type: 'string', description: 'Exact pair as "chainId/pairAddress" (from a previous result) for a precise refresh' },
+            limit: { type: 'number', description: 'Max pairs to return (default 5)' }
+        }, required: [] },
+        run: async a => {
+            if (a.pair) {
+                const [chain, addr] = String(a.pair).split('/');
+                const j = await dexFetch('/latest/dex/pairs/' + encodeURIComponent(chain) + '/' + encodeURIComponent(addr));
+                const list = (j.pairs || (j.pair ? [j.pair] : [])).map(fmtPair);
+                if (!list.length) throw new Error('pair not found: ' + a.pair);
+                return { asOf: new Date().toISOString(), pairs: list };
+            }
+            if (!a.query) throw new Error('pass query or pair');
+            const j = await dexFetch('/latest/dex/search?q=' + encodeURIComponent(a.query));
+            const list = (j.pairs || [])
+                .sort((x, y) => ((y.liquidity && y.liquidity.usd) || 0) - ((x.liquidity && x.liquidity.usd) || 0))
+                .slice(0, a.limit || 5).map(fmtPair);
+            return list.length ? { asOf: new Date().toISOString(), pairs: list }
+                               : 'no pairs found for "' + a.query + '"';
+        }
+    },
+    {
+        name: 'read_strategy',
+        description: 'Reads the user\'s trading strategy notebook as a NESTED-FUNCTION view: every note is a function, its body lines are conditions/actions, children are sub-functions. Interpret it top-down — descend ONLY into branches whose conditions match current market data (from get_market), like a call stack. Default notebook: the one named "Strategy"/"Strateji" (or whose root is). Returns the full tree with bodies.',
+        inputSchema: { type: 'object', properties: {
+            notebook: { type: 'string', description: 'Notebook name or id (default: auto-detect "Strategy")' },
+            address: { type: 'string', description: 'Start from this subtree (default "0")' }
+        }, required: [] },
+        run: async a => {
+            const list = await api('notebooks');
+            let meta = null;
+            if (a.notebook)
+                meta = list.find(x => x.id === a.notebook) ||
+                       list.find(x => (x.name || '').trim().toLowerCase() === String(a.notebook).trim().toLowerCase());
+            else meta = list.find(x => /strateji|strategy/i.test(x.name || ''));
+            let nb = meta ? await getNb(meta.id) : null;
+            if (!nb && !a.notebook) { // kök etiketi "Strategy" olan defteri ara
+                for (const m of list) {
+                    const cand = await getNb(m.id);
+                    if (/strateji|strategy/i.test(cand.root.label || '')) { nb = cand; meta = m; break; }
+                }
+            }
+            if (!nb) throw new Error('strategy notebook not found — notebooks: ' +
+                (list.map(x => x.name).join(', ') || 'none') + '. Pass notebook, or name one "Strategy".');
+            const start = nodeAt(nb.root, a.address || '0');
+            if (!start) throw new Error('address not found: ' + a.address);
+            return 'STRATEGY: ' + meta.name + ' (notebook_id: ' + meta.id + ')\n' +
+                'Read as nested functions — descend only into branches whose conditions match the market:\n\n' +
+                strategyView(start, a.address || '0', 0, []).join('\n');
+        }
+    },
+    {
+        name: 'log_trade_decision',
+        description: 'Files a trade RECOMMENDATION into the "Trade Journal/<SYMBOL>" category and (optionally) wormhole-links it to the strategy node that fired, so every decision is traceable on the brain graph. This is a paper record — the user executes manually on their platform (TradingView/Robinhood/DEX). Call it after evaluating the strategy with read_strategy + get_market.',
+        inputSchema: { type: 'object', properties: {
+            symbol: { type: 'string', description: 'e.g. "SOL/USDC"' },
+            action: { type: 'string', description: 'RECOMMENDATION: buy / sell / hold / watch / reduce…' },
+            reasoning: { type: 'string', description: 'Why — which conditions matched' },
+            route: { type: 'string', description: 'Path of fired strategy functions, e.g. "Strategy → Trend → Breakout"' },
+            market_snapshot: { type: 'string', description: 'Short market data summary used for the decision' },
+            fired_address: { type: 'string', description: 'Address of the strategy node that fired (gets a wormhole link)' },
+            notebook: { type: 'string', description: 'Notebook name/id (default: the strategy notebook)' }
+        }, required: ['symbol', 'action', 'reasoning'] },
+        run: async a => {
+            const list = await api('notebooks');
+            const meta = (a.notebook
+                ? (list.find(x => x.id === a.notebook) ||
+                   list.find(x => (x.name || '').trim().toLowerCase() === String(a.notebook).trim().toLowerCase()))
+                : list.find(x => /strateji|strategy/i.test(x.name || ''))) || list[0];
+            if (!meta) throw new Error('no notebook found');
+            const nb = await getNb(meta.id);
+            const { node } = ensureCategory(nb.root, ['Trade Journal', String(a.symbol).toUpperCase()]);
+            node.children = node.children || [];
+            const slot = firstFreeSlot(node);
+            const stamp = new Date().toISOString().replace('T', ' ').slice(0, 16);
+            const html = '<h2>' + cleanHtml(String(a.action).toUpperCase() + ' — ' + a.symbol) + '</h2>' +
+                '<p>' + cleanHtml(a.reasoning) + '</p>' +
+                (a.route ? '<p>Route: ' + cleanHtml(a.route) + '</p>' : '') +
+                (a.market_snapshot ? '<p>Market: ' + cleanHtml(a.market_snapshot) + '</p>' : '') +
+                '<p>' + stamp + ' UTC · recommendation only — not executed</p>';
+            const note = newNode(String(a.action).toUpperCase() + ' ' + a.symbol + ' · ' + stamp, slot, html);
+            node.children.push(note);
+            let linked = false;
+            if (a.fired_address) { // ateşlenen strateji düğümüne solucan deliği
+                const fired = nodeAt(nb.root, a.fired_address);
+                if (fired && fired.id) {
+                    fired.links = fired.links || []; note.links = note.links || [];
+                    if (!fired.links.includes(note.id)) fired.links.push(note.id);
+                    if (!note.links.includes(fired.id)) note.links.push(fired.id);
+                    linked = true;
+                }
+            }
+            await putRoot(meta.id, nb.root);
+            const jaddr = (function find(n, ad) { for (const c of (n.children || [])) {
+                if (c === note) return ad + '.' + c.slot;
+                const r = find(c, ad + '.' + c.slot); if (r) return r; } return null; })(nb.root, '0');
+            return { ok: true, notebook: meta.name, address: jaddr,
+                     linked_to_strategy_node: linked ? a.fired_address : null,
+                     note: 'recommendation logged — user executes manually' };
         }
     },
     {
@@ -542,7 +698,15 @@ async function handle(line) {
                     'target_notebook_id) — notes then weave into a multi-dimensional neural network. ' +
                     'The user also edits the universe by hand — respect the existing structure. ' +
                     'Browse shared maps (?s=... links) with read_share and search them with search_share; ' +
-                    'routes are computed with Contraction Hierarchies and 🕳→ steps are wormholes.' } });
+                    'routes are computed with Contraction Hierarchies and 🕳→ steps are wormholes. ' +
+                    'TRADING WORKFLOW (note-driven, Obsidian+Claude style): the user keeps a strategy ' +
+                    'notebook whose notes are nested functions — read it with read_strategy, fetch live ' +
+                    'market data with get_market, then walk the tree top-down like a call stack: descend ' +
+                    'only into branches whose written conditions match the data, and report WHICH ' +
+                    'sub-function fired and what it prescribes. Record every conclusion with ' +
+                    'log_trade_decision (pass fired_address so the journal entry is wormhole-linked to ' +
+                    'the strategy node). These are RECOMMENDATIONS: never claim to have executed a trade, ' +
+                    'never promise profits, and remind the user they execute manually on their platform.' } });
         if (method && method.startsWith('notifications/')) return;
         if (method === 'ping') return send({ jsonrpc: '2.0', id, result: {} });
         if (method === 'tools/list')
