@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="tr">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>3D Kuantum Not Evreni</title>
+<title>3D Quantum Note Universe</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8C%8C%3C/text%3E%3C/svg%3E">
 <script type="importmap">{"imports":{"three":"/vendor/three/build/three.module.js"}}</script>
 <link rel="modulepreload" href="/vendor/three/build/three.module.js">
@@ -19,28 +19,29 @@
 <body>
 
 <div id="hud" class="panel">
-    <h2>3D Kuantum Not Evreni</h2>
-    <p><span class="hl">🎯 Odak (varsayılan):</span> atoma tıkla → yumuşak yaklaş, sürükle → yörünge ·
-       <span class="hl">🚀 Uçuş:</span> WASD + Shift ·
-       atomun üzerine gel → <span class="hl">içerik kartı</span> ·
-       <span style="color:var(--green)">boş yuva</span> → not doğur ·
-       <span style="color:#a99bff">mor portal</span> → ışınlan · <span class="hl">Ctrl+Z</span> geri al</p>
+    <h2>3D Quantum Note Universe</h2>
+    <p><span class="hl">🎯 Focus (default):</span> click an atom → smooth approach, drag → orbit ·
+       <span class="hl">🚀 Flight:</span> WASD + Shift ·
+       hover an atom → <span class="hl">content card</span> ·
+       <span style="color:var(--green)">empty slot</span> → spawn a note ·
+       <span style="color:#a99bff">purple portal</span> → teleport · <span class="hl">Ctrl+Z</span> undo</p>
     <div id="modebar">
-        <button id="mode-flight">🚀 UÇUŞ MODU</button>
-        <button id="mode-focus">🎯 ODAK MODU</button>
+        <button id="mode-flight">🚀 FLIGHT MODE</button>
+        <button id="mode-focus">🎯 FOCUS MODE</button>
     </div>
-    <input id="search-in" placeholder="🔍 Evrende ara... (eşleşen atomlar parlar)">
+    <input id="search-in" placeholder="🔍 Search the universe... (matches glow)">
     <div id="search-res"></div>
     <div class="row">
         <select id="nb-select"></select>
-        <button id="nb-rename" title="Defteri yeniden adlandır">✎</button>
-        <button id="nb-new">+ DEFTER</button>
+        <button id="nb-rename" title="Rename notebook">✎</button>
+        <button id="nb-new">+ NOTEBOOK</button>
     </div>
     <div class="row">
         <span id="user-chip" style="display:none;color:var(--cyan);font-size:10px"></span>
-        <button id="btn-logout" style="display:none;padding:3px 8px;font-size:10px" class="ghost">ÇIKIŞ</button>
-        <span id="save-dot">○ bağlanıyor…</span>
-        <span style="margin-left:auto;font-size:10px;color:var(--line)">derinlik</span>
+        <button id="btn-logout" style="display:none;padding:3px 8px;font-size:10px" class="ghost">LOG OUT</button>
+        <span id="save-dot">○ connecting…</span>
+        <button id="btn-theme" class="ghost" title="Dark / Light theme" style="margin-left:auto;padding:3px 8px;font-size:11px">◐</button>
+        <span style="font-size:10px;color:var(--line)">depth</span>
         <select id="depth-sel"><option value="1">1</option><option value="2" selected>2</option><option value="3">3</option></select>
     </div>
 </div>
@@ -48,68 +49,68 @@
 <div id="note" class="panel">
     <button id="note-close">✕</button>
     <div id="addr"></div>
-    <input id="title-in" maxlength="80" placeholder="Başlık">
+    <input id="title-in" maxlength="80" placeholder="Title">
     <div id="fmt">
-        <button class="b1" data-tag="H1">Başlık</button>
-        <button class="b2" data-tag="H2">Alt Başlık</button>
-        <button class="b3" data-tag="P">Gövde</button>
+        <button class="b1" data-tag="H1">Heading</button>
+        <button class="b2" data-tag="H2">Subheading</button>
+        <button class="b3" data-tag="P">Body</button>
     </div>
     <div id="body-ed" contenteditable="true"></div>
     <div id="attach-btns">
-        <button id="btn-att-img">📷 Görsel Ekle</button>
-        <button id="btn-att-doc">📄 Belge Ekle</button>
+        <button id="btn-att-img">📷 Add Image</button>
+        <button id="btn-att-doc">📄 Add Document</button>
     </div>
     <div class="att-list" id="img-list"></div>
     <div class="att-list" id="doc-list"></div>
     <div id="link-btns">
-        <button id="link-start">🕳 Kuantum Bağlantısı Kur (Solucan Deliği)</button>
-        <button id="link-x">🧠 Defterler Arası Bağla</button>
+        <button id="link-start">🕳 Create Quantum Link (Wormhole)</button>
+        <button id="link-x">🧠 Link Across Notebooks</button>
     </div>
     <div id="sublist"></div>
 </div>
 
 <div id="stats" class="panel">
-    <p>Aktif eleman: <span class="hl" id="st-active">0</span></p>
-    <p>Draw call: <span class="hl" id="st-calls">0</span></p>
-    <p>Bellekteki not: <span class="hl" id="st-total">0</span></p>
-    <p>Derinlik: <span class="hl" id="st-depth">0</span> · Hız: <span class="hl" id="st-speed">0</span></p>
+    <p>Active elements: <span class="hl" id="st-active">0</span></p>
+    <p>Draw calls: <span class="hl" id="st-calls">0</span></p>
+    <p>Notes in memory: <span class="hl" id="st-total">0</span></p>
+    <p>Depth: <span class="hl" id="st-depth">0</span> · Speed: <span class="hl" id="st-speed">0</span></p>
 </div>
 
 <div class="btnrow">
-    <button id="btn-home">⌂ ANA MERKEZ</button>
-    <button id="btn-up" class="up">↑ ÜST</button>
-    <button id="btn-tunnel" class="up">⏳ ZAMAN TÜNELİ</button>
-    <button id="btn-share" class="share">🔗 PAYLAŞ</button>
-    <button id="btn-twod" class="ghost">🗺 2B</button>
-    <button id="btn-brain" class="ghost">🧠 BEYİN</button>
-    <button id="btn-topdown" class="ghost">📸 ÜSTTEN PNG</button>
+    <button id="btn-home">⌂ MAIN HUB</button>
+    <button id="btn-up" class="up">↑ UP</button>
+    <button id="btn-tunnel" class="up">⏳ TIME TUNNEL</button>
+    <button id="btn-share" class="share">🔗 SHARE</button>
+    <button id="btn-twod" class="ghost">🗺 2D</button>
+    <button id="btn-brain" class="ghost">🧠 BRAIN</button>
+    <button id="btn-topdown" class="ghost">📸 TOP-DOWN PNG</button>
     <button id="btn-export" class="ghost">↓ JSON</button>
     <button id="btn-import" class="ghost">↑ JSON</button>
 </div>
 
-<!-- 2B indirgeme -->
+<!-- 2D reduction -->
 <div id="twod">
     <canvas id="twod-cv"></canvas>
     <div id="twod-bar">
         <span id="twod-title"></span>
-        <button id="twod-up" class="up">↑ ÜST</button>
-        <button id="twod-open3d">3B'DE AÇ</button>
-        <button id="twod-png" class="ghost">PNG İNDİR</button>
-        <button id="twod-close" class="ghost">✕ KAPAT</button>
+        <button id="twod-up" class="up">↑ UP</button>
+        <button id="twod-open3d">OPEN IN 3D</button>
+        <button id="twod-png" class="ghost">DOWNLOAD PNG</button>
+        <button id="twod-close" class="ghost">✕ CLOSE</button>
     </div>
 </div>
 
-<!-- Zaman tüneli -->
+<!-- Time tunnel -->
 <div id="tunnel">
     <div class="card panel">
-        <h2>⏳ Zaman Tüneli</h2>
-        <p>Evrenin geçmiş versiyonlarına dön. Otomatik anlık görüntü: 10 dakikada bir (sunucu).
-           Oturum içinde <span class="hl">Ctrl+Z / Ctrl+Y</span> her zaman çalışır.</p>
+        <h2>⏳ Time Tunnel</h2>
+        <p>Return to past versions of your universe. Auto-snapshot: every 10 minutes (server).
+           In-session <span class="hl">Ctrl+Z / Ctrl+Y</span> always works.</p>
         <div id="tunnel-list"></div>
         <div class="row">
-            <button id="tunnel-snap">📌 ŞİMDİYİ VERSİYONLA</button>
-            <button id="tunnel-undo" class="ghost">↶ GERİ</button>
-            <button id="tunnel-redo" class="ghost">↷ İLERİ</button>
+            <button id="tunnel-snap">📌 SNAPSHOT NOW</button>
+            <button id="tunnel-undo" class="ghost">↶ UNDO</button>
+            <button id="tunnel-redo" class="ghost">↷ REDO</button>
             <button id="tunnel-close" class="ghost">✕</button>
         </div>
     </div>
@@ -117,47 +118,48 @@
 
 <div id="link-hint"></div>
 
-<!-- Beyin grafiği: tüm defterler tek sinir ağı görünümünde (Obsidian tarzı) -->
+<!-- Brain graph: every notebook as one neural network (Obsidian-style) -->
 <div id="brain">
     <canvas id="brain-cv"></canvas>
     <div id="brain-bar">
-        <span id="brain-title">🧠 Beyin Grafiği — düğüme tıkla: git · sürükle: kaydır · tekerlek: yakınlaş</span>
-        <button id="brain-close" class="ghost">✕ KAPAT</button>
+        <span id="brain-title">🧠 Brain Graph — click node: go · drag: pan · wheel: zoom</span>
+        <input id="brain-in" placeholder="🔍 search the brain... (Enter: jump to first match)">
+        <button id="brain-close" class="ghost">✕ CLOSE</button>
     </div>
 </div>
 
-<!-- Defterler arası bağlantı seçici -->
+<!-- Cross-notebook link picker -->
 <div id="xlink">
     <div class="card panel">
-        <h2>🧠 Defterler Arası Bağlantı</h2>
+        <h2>🧠 Cross-Notebook Link</h2>
         <p id="xlink-src"></p>
-        <input id="xlink-in" maxlength="80" placeholder="tüm defterlerde başlık ara...">
+        <input id="xlink-in" maxlength="80" placeholder="search titles across all notebooks...">
         <div id="xlink-res"></div>
-        <button id="xlink-close" class="ghost">✕ KAPAT</button>
+        <button id="xlink-close" class="ghost">✕ CLOSE</button>
     </div>
 </div>
 
-<!-- Kimlik: giriş / kayıt / hesapsız (yerel) devam -->
+<!-- Auth: log in / sign up / continue without account (local) -->
 <div id="auth">
     <div class="card panel">
-        <h2>🔐 Not Evrenin Sana Ait</h2>
-        <p>Verilerin hesabına kilitlenir; başka hiçbir kullanıcı defterlerine ve dosyalarına erişemez.</p>
+        <h2>🔐 Your Note Universe Is Yours</h2>
+        <p>Your data is locked to your account; no other user can access your notebooks and files.</p>
         <div id="auth-tabs">
-            <button id="auth-tab-login" class="on">GİRİŞ</button>
-            <button id="auth-tab-register">KAYIT OL</button>
+            <button id="auth-tab-login" class="on">LOG IN</button>
+            <button id="auth-tab-register">SIGN UP</button>
         </div>
-        <input id="auth-user" maxlength="32" placeholder="kullanıcı adı" autocomplete="username">
-        <input id="auth-pass" type="password" maxlength="256" placeholder="parola (en az 10 karakter)" autocomplete="current-password">
+        <input id="auth-user" maxlength="32" placeholder="username" autocomplete="username">
+        <input id="auth-pass" type="password" maxlength="256" placeholder="password (at least 10 characters)" autocomplete="current-password">
         <p id="auth-err"></p>
-        <button id="auth-submit">GİRİŞ YAP</button>
-        <button id="auth-local" class="ghost">HESAPSIZ DEVAM ET (yalnız bu tarayıcıda, IndexedDB)</button>
+        <button id="auth-submit">LOG IN</button>
+        <button id="auth-local" class="ghost">CONTINUE WITHOUT ACCOUNT (this browser only, IndexedDB)</button>
     </div>
 </div>
 
-<!-- Onboarding: engelleyici modal yerine tek satır değer önerisi + uzamsal çağrı -->
-<div id="onboard">Notlarını <b>3B fraktal bir evrende</b> düzenle —
-    <span style="color:var(--green)">yeşil parlayan yuvaya tıkla</span>, ilk notun doğsun.</div>
-<div id="slot-callout">⤶ buraya tıkla — ilk notun</div>
+<!-- Onboarding: one-line value proposition + spatial callout instead of a blocking modal -->
+<div id="onboard">Organize your notes in a <b>3D fractal universe</b> —
+    <span style="color:var(--green)">click the glowing green slot</span> to spawn your first note.</div>
+<div id="slot-callout">⤶ click here — your first note</div>
 
 <input type="file" id="file-in" accept=".json" style="display:none">
 <input type="file" id="img-in" accept="image/*" multiple style="display:none">
@@ -168,17 +170,17 @@
     <div class="sc-sec" id="sc-docs"></div>
     <div class="sc-imgs" id="sc-imgs"></div>
     <div class="sc-row">
-        <button id="sc-go">🎯 YAKLAŞ</button>
-        <button id="sc-sel" class="ghost">✎ SEÇ</button>
+        <button id="sc-go">🎯 APPROACH</button>
+        <button id="sc-sel" class="ghost">✎ SELECT</button>
     </div>
 </div>
 <div id="quick">
     <div class="q-addr"></div>
-    <input id="q-title" maxlength="80" placeholder="Başlık ekle...">
+    <input id="q-title" maxlength="80" placeholder="Add a title...">
     <div class="q-row">
-        <button id="q-note">📝 Not</button>
-        <button id="q-img">📷 Görsel</button>
-        <button id="q-doc">📄 Belge</button>
+        <button id="q-note">📝 Note</button>
+        <button id="q-img">📷 Image</button>
+        <button id="q-doc">📄 Doc</button>
     </div>
     <div id="q-lists">
         <div class="sc-sec" id="q-notes"></div>

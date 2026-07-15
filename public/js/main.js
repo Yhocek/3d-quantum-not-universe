@@ -10,8 +10,19 @@ import * as Controls from './Controls.js';
 import * as UI from './UIManager.js';
 
 const clock=new THREE.Clock();
+/* --- PERFORMANS: boşta kare sınırlama ---
+   Etkileşim yokken GPU/CPU dinlensin: 4 sn hareketsizlikte ~30fps,
+   60 sn'de ~15fps'e düşülür; ilk girdide anında tam kareye dönülür.
+   (Arka plan sekmesinde rAF zaten durur — sıfır yük.) */
+let lastAct=performance.now(), frameNo=0;
+['pointermove','pointerdown','keydown','wheel','touchstart'].forEach(ev=>
+    window.addEventListener(ev, ()=>lastAct=performance.now(), {passive:true}));
 function animate(){
     requestAnimationFrame(animate);
+    frameNo++;
+    const idle=performance.now()-lastAct;
+    if(idle>60000){ if(frameNo%4) return; }      // derin boşta: ~15fps
+    else if(idle>4000){ if(frameNo%2) return; }  // boşta: ~30fps
     const dt=Math.min(clock.getDelta(),0.05);
     const t=clock.elapsedTime;
     const speed=Controls.update(dt);
@@ -37,8 +48,8 @@ function animate(){
     if(q.get('s') && State.serverOn){
         try{
             const sh=await D.api('share/'+q.get('s'));
-            State.notebooks.push({id:null, name:'Paylaşılan: '+sh.name, root:D.fromStd(sh.root)});
-        }catch(e){ UI.toast('Paylaşım bulunamadı.'); }
+            State.notebooks.push({id:null, name:'Shared: '+sh.name, root:D.fromStd(sh.root)});
+        }catch(e){ UI.toast('Share not found.'); }
     }
 
     /* sunucu açık ama oturum yok: kimlik katmanı (altta yerel mod çalışır) */
@@ -53,12 +64,12 @@ function animate(){
     if(!State.serverOn){
         const locals=await D.loadLocalTrees();
         locals.sort((a,b)=>(b.ts||0)-(a.ts||0)).forEach(t=>{
-            State.notebooks.push({id:t.id||null, localKey:t.key, name:t.name||'Yerel Defter', root:D.fromStd(t.root)});
+            State.notebooks.push({id:t.id||null, localKey:t.key, name:t.name||'Local Notebook', root:D.fromStd(t.root)});
         });
     }
 
     if(!State.notebooks.length){
-        State.notebooks.push({id:null, name:'Defter 1 (yerel)', root:D.seedRoot()});
+        State.notebooks.push({id:null, name:'Notebook 1 (local)', root:D.seedRoot()});
     }
 
     let idx=0;

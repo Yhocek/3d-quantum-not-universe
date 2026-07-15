@@ -15,7 +15,18 @@ export function setViewChanged(fn){ onViewChanged=fn; }
 let atomsMesh, slotsMesh, bondLines=null, grandPoints=null, linkLines=null;
 let selLine=null, selPathIdx=new Map(), lastSel=null, lastOpen=null;
 let attachGroup, labelPool=[];
-let composer=null, bloomPass=null, atomShader=null;
+let composer=null, bloomPass=null, atomShader=null, starMat=null;
+export let lightTheme=false;
+/* tema: sahne arka planı, sis, yıldızlar, etiketler, bloom eşiği tek yerden */
+export function applyTheme(light){
+    lightTheme=light;
+    const bg=light?0xeef1f7:0x020208;
+    scene.background=new THREE.Color(bg);
+    scene.fog.color.set(bg);
+    if(starMat) starMat.color.set(light?0xb9c2d4:0x2a3040);
+    if(bloomPass){ bloomPass.threshold=light?0.92:0.15; bloomPass.strength=light?0.3:0.85; }
+    refreshLabels();
+}
 const LABEL_CAP=60;
 const _m=new THREE.Matrix4(), _q=new THREE.Quaternion(), _s=new THREE.Vector3(), _proj=new THREE.Vector3();
 const _white=new THREE.Color(0xffffff), _green=new THREE.Color(0x2ed573),
@@ -27,6 +38,7 @@ export function colorOf(n){ return new THREE.Color(PALETTE[hashStr(n.id)%PALETTE
 export function init(){
     scene=new THREE.Scene();
     scene.fog=new THREE.FogExp2(0x020208, 0.0028);
+    scene.background=new THREE.Color(0x020208);
     camera=new THREE.PerspectiveCamera(70, innerWidth/innerHeight, 0.01, 4000);
     renderer=new THREE.WebGLRenderer({antialias:true});
     renderer.setSize(innerWidth, innerHeight);
@@ -41,7 +53,8 @@ export function init(){
     for(let i=0;i<N;i++){ const r=600+rng()*1100, th=rng()*Math.PI*2, ph=Math.acos(2*rng()-1);
         pos.set([r*Math.sin(ph)*Math.cos(th), r*Math.cos(ph), r*Math.sin(ph)*Math.sin(th)], i*3); }
     const sg=new THREE.BufferGeometry(); sg.setAttribute('position', new THREE.BufferAttribute(pos,3));
-    scene.add(new THREE.Points(sg, new THREE.PointsMaterial({color:0x2a3040, size:1.6})));
+    starMat=new THREE.PointsMaterial({color:0x2a3040, size:1.6});
+    scene.add(new THREE.Points(sg, starMat));
 
     /* --- Geometry Batching: 2 InstancedMesh --- */
     const atomGeo=new THREE.SphereGeometry(1,24,24);
@@ -130,9 +143,10 @@ async function initPost(){
         composer=new EffectComposer(renderer);
         composer.addPass(new RenderPass(scene,camera));
         bloomPass=new UnrealBloomPass(new THREE.Vector2(innerWidth,innerHeight), 0.85, 0.55, 0.15);
+        if(lightTheme){ bloomPass.threshold=0.92; bloomPass.strength=0.3; } // tema bloom'dan önce seçildiyse
         composer.addPass(bloomPass);
         composer.setSize(innerWidth, innerHeight);
-    }catch(e){ console.warn('Bloom yüklenemedi, düz render:', e.message); composer=null; }
+    }catch(e){ console.warn('Bloom unavailable, plain render:', e.message); composer=null; }
 }
 
 /* ------------------------------------------------------------- görünüm kur */
@@ -325,15 +339,17 @@ export function writeInstances(t){
 function drawLabel(i,node,pos,r,isOpen){
     const L=labelPool[i], x=L.c.getContext('2d');
     x.clearRect(0,0,512,160);
-    x.textAlign='center'; x.shadowColor='#020208'; x.shadowBlur=9;
+    x.textAlign='center'; x.shadowColor=lightTheme?'#eef1f7':'#020208'; x.shadowBlur=9;
     const title=(node.title||'').trim(), addr=address(node);
+    const cTitle=lightTheme?(isOpen?'#b02a3a':'#1e2430'):(isOpen?'#ff8a95':'#e8edf2');
+    const cAddr=lightTheme?'#a86a00':'#ffa502';
     if(title){
-        x.font='bold 42px Courier New'; x.fillStyle=isOpen?'#ff8a95':'#e8edf2';
+        x.font='bold 42px Courier New'; x.fillStyle=cTitle;
         x.fillText(truncTitle(title,20),256,62);
-        x.font='28px Courier New'; x.fillStyle='#ffa502';
+        x.font='28px Courier New'; x.fillStyle=cAddr;
         x.fillText(addr,256,114);
     }else{
-        x.font='32px Courier New'; x.fillStyle='#ffa502';
+        x.font='32px Courier New'; x.fillStyle=cAddr;
         x.fillText(addr,256,92);
     }
     L.tex.needsUpdate=true;

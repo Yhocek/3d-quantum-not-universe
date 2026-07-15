@@ -76,7 +76,7 @@ export function nodeById(id){ return nodeIndex.get(id)||null; }
 export function toStd(n, depth=0){
     const kids = filledSlots(n).map(i=>toStd(n.slots[i], depth+1));
     return {
-        id:n.id, label:n.title||'isimsiz',
+        id:n.id, label:n.title||'untitled',
         type: depth===0?'macro_goal':(kids.length?'action':'micro_habit'),
         size: Math.max(5-2*depth,1),
         slot: n.slotIndex==null?null:n.slotIndex+1,
@@ -181,7 +181,7 @@ function idbGet(id){
 }
 /* yeni varlık kaydet → {assetId,...} referansı döner */
 export async function saveAsset({name, dataURL, aspect=null, size=null}){
-    if(!safeDataURL(dataURL)) throw new Error('desteklenmeyen dosya türü');
+    if(!safeDataURL(dataURL)) throw new Error('unsupported file type');
     const rec={id:genId('a'), name, dataURL, aspect, size};
     assetCache.set(rec.id, rec);
     idbPut(rec).catch(()=>{});
@@ -253,29 +253,34 @@ let saveTimer=null;
 export function markDirty(){
     scheduleLocalPersist(); // her durumda yerel ayna: veri kaybı yok
     if(!State.serverOn || !State.user){ emitSave('off'); return; }
+    pendingSave=true;
     emitSave('dirty');
     clearTimeout(saveTimer);
     saveTimer=setTimeout(saveNow,1200);
 }
+let pendingSave=false;
+export function hasPendingSave(){ return pendingSave; }
 export async function saveNow(){
     const nb=currentNb();
     if(!State.serverOn || !State.user || !nb || !nb.id) return;
     emitSave('saving');
     try{
-        await api('notebooks/'+nb.id,{method:'PUT',body:JSON.stringify({name:nb.name, root:toStd(nb.root)})});
+        const r=await api('notebooks/'+nb.id,{method:'PUT',body:JSON.stringify({name:nb.name, root:toStd(nb.root)})});
+        nb.updatedAt=r.updatedAt||Date.now(); // canlı senkron kendi yazdığımızı geri çekmesin
+        pendingSave=false;
         emitSave('saved');
     }catch(e){ State.serverOn=false; emitSave('off'); }
 }
 
 /* ---------- tohum evren: ilk açılış boş olmasın, "Aha!" 15 saniyede gelsin ---------- */
 export function seedRoot(){
-    const root=makeNode(); root.title='Ana Merkez';
-    root.html='<h1>Zihin Haritam</h1><p>Yeşil parlayan yuvaya tıkla — ilk notun orada doğsun.</p>';
+    const root=makeNode(); root.title='Main Hub';
+    root.html='<h1>My Mind Map</h1><p>Click the glowing green slot — your first note is born there.</p>';
     const mk=(parent,slot,title,html)=>{ const n=makeNode(); n.title=title; n.html=html||'';
         n.parent=parent; n.slotIndex=slot; parent.slots[slot]=n; return n; };
-    const kilo=mk(root,11,'20 Kilo Vermek','<h2>Plan</h2><p>Yavaş ama kalıcı.</p>');
-    mk(kilo,0,'Merdiven kullan'); mk(kilo,2,'Şekeri bırak');
-    mk(root,20,'Projeler'); mk(root,29,'Okuma Listesi'); mk(root,38,'Fikirler ∞');
+    const kilo=mk(root,11,'Lose 20 Kilos','<h2>Plan</h2><p>Slow but lasting.</p>');
+    mk(kilo,0,'Take the stairs'); mk(kilo,2,'Quit sugar');
+    mk(root,20,'Projects'); mk(root,29,'Reading List'); mk(root,38,'Ideas ∞');
     return root;
 }
 
@@ -284,10 +289,10 @@ export async function loadNotebookList(){
     if(!State.serverOn) return;
     try{
         const list=await api('notebooks');
-        list.forEach(m=>State.notebooks.push({id:m.id, name:m.name, root:null}));
+        list.forEach(m=>State.notebooks.push({id:m.id, name:m.name, root:null, updatedAt:m.updatedAt||0}));
         if(!State.notebooks.length){
             const seed=seedRoot();
-            const created=await api('notebooks',{method:'POST',body:JSON.stringify({name:'Defter 1', root:toStd(seed)})});
+            const created=await api('notebooks',{method:'POST',body:JSON.stringify({name:'Notebook 1', root:toStd(seed)})});
             State.notebooks.push({id:created.id, name:created.name, root:seed});
         }
     }catch(e){ State.serverOn=false; emitSave('off'); }
@@ -296,13 +301,13 @@ export async function ensureRoot(nb){
     if(nb.root) return nb.root;
     if(State.serverOn && nb.id){
         try{ const full=await api('notebooks/'+nb.id); nb.root=fromStd(full.root); }
-        catch(e){ nb.root=makeNode(); nb.root.title='Ana Merkez'; }
-    } else { nb.root=makeNode(); nb.root.title='Ana Merkez'; }
+        catch(e){ nb.root=makeNode(); nb.root.title='Main Hub'; }
+    } else { nb.root=makeNode(); nb.root.title='Main Hub'; }
     return nb.root;
 }
 export async function createNotebook(name){
     const nb={id:null, name, root:makeNode()};
-    nb.root.title='Ana Merkez';
+    nb.root.title='Main Hub';
     if(State.serverOn){
         try{ const c=await api('notebooks',{method:'POST',body:JSON.stringify({name, root:toStd(nb.root)})});
              nb.id=c.id; }catch(e){}
@@ -470,14 +475,38 @@ export function brainGraph(cap=900){
     const nodes=[], edges=[], idx=new Map();
     State.notebooks.forEach((nb,i)=>{
         if(!nb.root) return;
-        (function walk(n,parent){
+        (function walk(n,parent,d){
             if(nodes.length>=cap) return;
             const me=nodes.length;
             idx.set(n.id, me);
-            nodes.push({node:n, nbIndex:i, deg:0, isRoot:parent==null});
+            nodes.push({node:n, nbIndex:i, deg:0, depth:d, isRoot:parent==null});
             if(parent!=null){ edges.push({a:parent,b:me,type:'tree'}); nodes[parent].deg++; nodes[me].deg++; }
-            filledSlots(n).forEach(k=>walk(n.slots[k], me));
-        })(nb.root, null);
+            filledSlots(n).forEach(k=>walk(n.slots[k], me, d+1));
+        })(nb.root, null, 0);
+    });
+    /* ORTAK KÜMELER: farklı defterlerde aynı başlık YOLUNA sahip dallanan
+       düğümler (örn. her iki defterde de "Dersler/Matematik") ikiz sayılır;
+       ikiz kenarının ağırlığı paylaşılan çocuk başlığı sayısıyla artar →
+       çizim kalınlığı bundan türetilir. */
+    const byPath=new Map();
+    nodes.forEach((rec,i)=>{
+        if(rec.isRoot || !filledSlots(rec.node).length) return;
+        const parts=[]; let n=rec.node;
+        while(n && n.parent){ parts.unshift((n.title||'').trim().toLowerCase()); n=n.parent; }
+        if(parts.some(t=>!t)) return; // adsız düzey varsa eşleşme yok
+        const key=parts.join('/');
+        (byPath.get(key)||byPath.set(key,[]).get(key)).push(i);
+    });
+    byPath.forEach(list=>{
+        for(let x=0;x<list.length;x++) for(let y=x+1;y<list.length;y++){
+            const A=nodes[list[x]], B=nodes[list[y]];
+            if(A.nbIndex===B.nbIndex) continue;
+            const ta=new Set(filledSlots(A.node).map(k=>(A.node.slots[k].title||'').trim().toLowerCase()).filter(Boolean));
+            let shared=0;
+            filledSlots(B.node).forEach(k=>{ if(ta.has((B.node.slots[k].title||'').trim().toLowerCase())) shared++; });
+            edges.push({a:list[x], b:list[y], type:'twin', w:1+shared});
+            A.deg++; B.deg++;
+        }
     });
     nodes.forEach((rec,ai)=>{ // solucan delikleri (her çift bir kez)
         (rec.node.links||[]).forEach(l=>{

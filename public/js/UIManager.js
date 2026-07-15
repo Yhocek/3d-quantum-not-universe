@@ -34,7 +34,8 @@ export function init(){
 
     bindPanel(); bindQuick(); bindCard(); bindSearch(); bindModes(); bindAuth();
     bindButtons(); bindTunnel(); bindTwod(); bindFiles(); bindKeys();
-    bindBrain(); bindXlink();
+    bindBrain(); bindXlink(); bindTheme();
+    startMcpSync();
     window.addEventListener('mousemove', tipMove);
     window.addEventListener('resize', ()=>{ if($('twod').classList.contains('open')) drawTwod(); });
 }
@@ -54,7 +55,7 @@ function bindAuth(){
     $('auth-local').onclick=()=>{
         $('auth').classList.remove('show');
         State.serverOn=false; setSaveDot('off');
-        toast('Yerel mod: verilerin bu tarayıcıda (IndexedDB) saklanır.');
+        toast('Local mode: your data is stored in this browser (IndexedDB).');
     };
     $('btn-logout').onclick=async()=>{ await D.logout(); location.reload(); };
     refreshUserChip();
@@ -63,7 +64,7 @@ function setAuthMode(m){
     authMode=m;
     $('auth-tab-login').classList.toggle('on', m==='login');
     $('auth-tab-register').classList.toggle('on', m==='register');
-    $('auth-submit').textContent = m==='login' ? 'GİRİŞ YAP' : 'HESAP OLUŞTUR';
+    $('auth-submit').textContent = m==='login' ? 'LOG IN' : 'CREATE ACCOUNT';
     $('auth-pass').autocomplete = m==='login' ? 'current-password' : 'new-password';
     $('auth-err').textContent='';
 }
@@ -91,8 +92,8 @@ function refreshUserChip(){
 /* ============================================================ KAYIT DURUMU */
 function setSaveDot(s){
     const el=$('save-dot');
-    el.textContent={saved:'● senkron', saving:'● kaydediliyor…', dirty:'● kaydedilecek',
-                    off:'○ çevrimdışı — yerel kayıt aktif (IndexedDB)'}[s];
+    el.textContent={saved:'● synced', saving:'● saving…', dirty:'● will save',
+                    off:'○ offline — local save active (IndexedDB)'}[s];
     el.style.color={saved:'#2ed573', saving:'#ffa502', dirty:'#ffa502', off:'#57606f'}[s];
 }
 
@@ -153,8 +154,8 @@ function modeSet(m){
     Controls.setMode(m);
     $('mode-flight').classList.toggle('on', m==='flight');
     $('mode-focus').classList.toggle('on', m==='focus');
-    toast(m==='flight' ? '🚀 Uçuş modu: WASD ile serbest uç'
-                       : '🎯 Odak modu: atoma tıkla → yumuşak yaklaş, sürükle → yörüngede dön');
+    toast(m==='flight' ? '🚀 Flight mode: fly freely with WASD'
+                       : '🎯 Focus mode: click an atom → smooth approach, drag → orbit');
 }
 export function applyModeUI(){ $('mode-'+State.mode).classList.add('on'); }
 
@@ -170,19 +171,19 @@ function hoverCheck(e){
             if(a){
                 if(a.kind==='portal'){
                     txt=a.xnb!=null
-                        ? '🧠 '+State.notebooks[a.xnb].name+' → '+D.address(a.node)+(a.node.title?' — '+a.node.title:'')+' · tıkla, deftere ışınlan'
-                        : '🕳 '+D.address(a.node)+(a.node.title?' — '+a.node.title:'')+' · tıkla, ışınlan';
+                        ? '🧠 '+State.notebooks[a.xnb].name+' → '+D.address(a.node)+(a.node.title?' — '+a.node.title:'')+' · click: teleport to notebook'
+                        : '🕳 '+D.address(a.node)+(a.node.title?' — '+a.node.title:'')+' · click: teleport';
                 }else{
-                    txt=D.address(a.node)+(a.node.title?' — '+a.node.title:' — isimsiz');
+                    txt=D.address(a.node)+(a.node.title?' — '+a.node.title:' — untitled');
                     if(a.kind!=='open') cardShow(a.node, a.pos);
                 }
             }
         } else if(h.object===slotsMesh){
             hS=h.instanceId;
             const d=Engine.slotInst[hS];
-            if(d && State.openNode) txt=D.address(State.openNode)+'.'+(d.slotIndex+1)+' — boş yuva · tıkla, not doğur';
+            if(d && State.openNode) txt=D.address(State.openNode)+'.'+(d.slotIndex+1)+' — empty slot · click: spawn a note';
         } else if(h.object.isSprite){
-            txt=h.object.userData.type==='doc' ? h.object.userData.att.name+' · tıkla, indir' : h.object.userData.att.name;
+            txt=h.object.userData.type==='doc' ? h.object.userData.att.name+' · click: download' : h.object.userData.att.name;
         }
     }
     Engine.setHover(hA,hS);
@@ -199,7 +200,7 @@ function clickCheck(e){
         /* kuantum bağlantı modu: ikinci atom seçiliyor */
         if(State.linkFrom && a.kind!=='portal'){
             if(D.linkNodes(State.linkFrom, a.node)){
-                toast('🕳 Solucan deliği kuruldu: '+D.address(State.linkFrom)+' ⇄ '+D.address(a.node));
+                toast('🕳 Wormhole created: '+D.address(State.linkFrom)+' ⇄ '+D.address(a.node));
             }
             endLinkMode();
             Engine.buildView(State.openNode);
@@ -208,13 +209,13 @@ function clickCheck(e){
         if(a.kind==='portal'){ // ışınlan!
             const t=a.node;
             if(a.xnb!=null && a.xnb!==State.nbIndex){ // defterler arası geçiş
-                toast('🧠 Defterler arası ışınlanıyorsun → '+State.notebooks[a.xnb].name);
+                toast('🧠 Teleporting across notebooks → '+State.notebooks[a.xnb].name);
                 switchNotebook(a.xnb).then(()=>{
                     State.selNode=t; Engine.buildView(t); Controls.spawnNear(t); updatePanel();
                 });
                 return;
             }
-            toast('🕳 Işınlanıyorsun → '+D.address(t));
+            toast('🕳 Teleporting → '+D.address(t));
             State.selNode=t;
             Engine.buildView(t);
             Controls.spawnNear(t);
@@ -233,7 +234,7 @@ function clickCheck(e){
         State.selNode=c;
         Engine.buildView(State.openNode);
         D.markDirty();
-        toast('Not doğdu: '+D.address(c));
+        toast('Note born: '+D.address(c));
         $('title-in').focus();
     } else if(h.object.isSprite && h.object.userData.type==='doc'){
         downloadAsset(h.object.userData.att);
@@ -241,7 +242,7 @@ function clickCheck(e){
 }
 async function downloadAsset(att){
     const rec=await D.resolveAsset(att.assetId);
-    if(!rec){ toast('Dosya bulunamadı (çevrimdışı olabilir).'); return; }
+    if(!rec){ toast('File not found (may be offline).'); return; }
     const a=document.createElement('a'); a.href=rec.dataURL; a.download=rec.name; a.click();
 }
 
@@ -263,7 +264,7 @@ function bindCard(){
     $('sc-sel').onclick=()=>{
         if(!cardNode) return;
         State.selNode=cardNode; updatePanel();
-        toast('Seçildi: '+D.address(cardNode)+' — sağ panelden düzenle');
+        toast('Selected: '+D.address(cardNode)+' — edit in the right panel');
     };
 }
 function cardShow(node,pos){
@@ -280,7 +281,7 @@ function cardScheduleHide(){
 function cardHide(){ cardNode=null; subcard.classList.remove('open'); }
 function fillCard(node){
     subcard.querySelector('.sc-addr').textContent=D.address(node);
-    subcard.querySelector('.sc-title').textContent=node.title||'isimsiz';
+    subcard.querySelector('.sc-title').textContent=node.title||'untitled';
     renderContentLists(node,'sc');
 }
 /* Not/belge/görsel listeleri — kart ('sc') ve hızlı menü ('q') paylaşır */
@@ -294,25 +295,25 @@ function renderContentLists(node, prefix){
         notesEl.appendChild(elMk('span','sc-k','📝 '+kids.length+':'));
         kids.slice(0,4).forEach(i=>{
             const c=node.slots[i];
-            const b=elMk('span','sc-item','.'+(i+1)+' '+(c.title||'isimsiz'));
-            b.title=D.address(c)+' — seç';
+            const b=elMk('span','sc-item','.'+(i+1)+' '+(c.title||'untitled'));
+            b.title=D.address(c)+' — select';
             b.onclick=()=>{ State.selNode=c; updatePanel(); };
             notesEl.appendChild(b);
         });
         if(kids.length>4) notesEl.appendChild(elMk('span','sc-more','+'+(kids.length-4)));
-    } else notesEl.appendChild(elMk('span','sc-empty','📝 alt not yok'));
+    } else notesEl.appendChild(elMk('span','sc-empty','📝 no subnotes'));
     /* 📄 belgeler */
     docsEl.innerHTML='';
     if(node.docs.length){
         docsEl.appendChild(elMk('span','sc-k','📄'));
         node.docs.slice(0,3).forEach(a=>{
             const b=elMk('span','sc-item',a.name);
-            b.title=a.name+' — indir';
+            b.title=a.name+' — download';
             b.onclick=()=>downloadAsset(a);
             docsEl.appendChild(b);
         });
         if(node.docs.length>3) docsEl.appendChild(elMk('span','sc-more','+'+(node.docs.length-3)));
-    } else docsEl.appendChild(elMk('span','sc-empty','📄 belge yok'));
+    } else docsEl.appendChild(elMk('span','sc-empty','📄 no documents'));
     /* 📷 görsel küçükleri (assetId'den asenkron) */
     imgsEl.innerHTML='';
     if(node.images.length){
@@ -322,7 +323,7 @@ function renderContentLists(node, prefix){
             imgsEl.appendChild(im);
         });
         if(node.images.length>4) imgsEl.appendChild(elMk('span','sc-more','+'+(node.images.length-4)));
-    } else imgsEl.appendChild(elMk('span','sc-empty','📷 görsel yok'));
+    } else imgsEl.appendChild(elMk('span','sc-empty','📷 no images'));
 }
 function bindQuick(){
     qTitle.addEventListener('input',()=>{
@@ -415,8 +416,8 @@ function bindPanel(){
     $('link-start').onclick=()=>{
         State.linkFrom=State.selNode;
         document.body.classList.add('linking');
-        $('link-hint').textContent='🕳 '+D.address(State.selNode)+' için hedef atomu seç (ESC: vazgeç)';
-        toast('Bağlantı modu: hedef atoma tıkla.');
+        $('link-hint').textContent='🕳 pick a target atom for '+D.address(State.selNode)+' (ESC: cancel)';
+        toast('Link mode: click a target atom.');
     };
     $('link-x').onclick=openXlink;
     /* [[wikilink]] (Obsidian): gövdede [[Başlık]] geçen notlara odak
@@ -439,7 +440,7 @@ async function parseWikilinks(){
     }
     if(made){
         Engine.buildView(State.openNode); renderSublist();
-        toast('🧠 '+made+' [[wikilink]] solucan deliğine dönüştü.');
+        toast('🧠 '+made+' [[wikilink]] became wormhole(s).');
     }
 }
 export function endLinkMode(){ State.linkFrom=null; document.body.classList.remove('linking'); }
@@ -455,7 +456,7 @@ export function updatePanel(){
         addrEl.appendChild(s);
     });
     const ttl=document.createElement('span'); ttl.style.color='#57606f';
-    ttl.textContent=' · '+(sel===State.openNode?'AÇIK KÜME':'seçili'); addrEl.appendChild(ttl);
+    ttl.textContent=' · '+(sel===State.openNode?'OPEN CLUSTER':'selected'); addrEl.appendChild(ttl);
 
     titleIn.value=sel.title;
     bodyEd.innerHTML=sanitizeHtml(sel.html);
@@ -482,7 +483,7 @@ function renderAttachLists(){
     });
     const dl=$('doc-list'); dl.innerHTML='';
     sel.docs.forEach((a,i)=>{
-        const d=document.createElement('div'); d.className='att-doc'; d.textContent='📄 '+a.name; d.title=a.name+' — indir';
+        const d=document.createElement('div'); d.className='att-doc'; d.textContent='📄 '+a.name; d.title=a.name+' — download';
         d.onclick=()=>downloadAsset(a);
         const x=document.createElement('button'); x.className='att-x'; x.textContent='×';
         x.onclick=ev=>{ ev.stopPropagation(); sel.docs.splice(i,1); afterAttachChange(); };
@@ -529,7 +530,7 @@ function bindFiles(){
         r.onload=async()=>{ try{
                 const o=JSON.parse(r.result);
                 const root=D.fromStd(o.root||o);
-                const nb={id:null, name:o.name||('İçe Aktarılan '+State.notebooks.length), root};
+                const nb={id:null, name:o.name||('Imported '+State.notebooks.length), root};
                 if(State.serverOn){
                     try{ const c=await D.api('notebooks',{method:'POST',body:JSON.stringify({name:nb.name, root:D.toStd(root)})});
                          nb.id=c.id; }catch(err){}
@@ -537,8 +538,8 @@ function bindFiles(){
                 State.notebooks.push(nb);
                 refreshNbSelect(State.notebooks.length-1);
                 await switchNotebook(State.notebooks.length-1);
-                toast('Defter yüklendi: '+nb.name);
-            }catch(err){ toast('Geçersiz dosya.'); } };
+                toast('Notebook loaded: '+nb.name);
+            }catch(err){ toast('Invalid file.'); } };
         r.readAsText(f); e.target.value='';
     });
 }
@@ -549,36 +550,36 @@ function renderSublist(){
     const el=$('sublist');
     const base=D.address(sel);
     const rows=D.filledSlots(sel);
-    let html='<h4>// Dolu Alt Atomlar ('+rows.length+'/'+SLOT_COUNT+')</h4>'+
-        (rows.length?'':'<p class="empty">Henüz boş — 3B görünümde sönük bir yuva ucuna tıkla.</p>');
+    let html='<h4>// Filled Child Atoms ('+rows.length+'/'+SLOT_COUNT+')</h4>'+
+        (rows.length?'':'<p class="empty">Empty so far — click a dim slot tip in the 3D view.</p>');
     el.innerHTML=html;
     rows.forEach(i=>{
         const c=sel.slots[i];
         const row=document.createElement('div'); row.className='sub';
         const num=document.createElement('span'); num.className='num'; num.textContent=base+'.'+(i+1);
         const nm=document.createElement('span'); nm.className='nm';
-        nm.textContent=c.title||'isimsiz';
+        nm.textContent=c.title||'untitled';
         nm.onclick=()=>{ State.selNode=c; updatePanel(); };
         const cnt=document.createElement('span'); cnt.className='cnt';
         cnt.textContent=(D.filledSlots(c).length?D.filledSlots(c).length+'↓ ':'')+
             (c.images.length?'📷'+c.images.length+' ':'')+(c.docs.length?'📄'+c.docs.length:'')+
             (c.links.length?' 🕳'+c.links.length:'');
-        const go=document.createElement('span'); go.className='go'; go.textContent='git →';
+        const go=document.createElement('span'); go.className='go'; go.textContent='go →';
         go.onclick=()=>{ State.selNode=c; Engine.buildView(c); Controls.flyTo(c); };
-        const del=document.createElement('span'); del.className='del'; del.textContent='×'; del.title='Sil';
+        const del=document.createElement('span'); del.className='del'; del.textContent='×'; del.title='Delete';
         del.onclick=()=>{
-            if(del.textContent==='×'){ del.textContent='emin?'; setTimeout(()=>del.textContent='×',2000); return; }
+            if(del.textContent==='×'){ del.textContent='sure?'; setTimeout(()=>del.textContent='×',2000); return; }
             D.pushUndo();
             delete sel.slots[i];
             D.rebuildIndex();
             if(D.inTreeOf(State.openNode,c)) Engine.buildView(sel); else Engine.buildView(State.openNode);
-            D.markDirty(); toast('Silindi: '+base+'.'+(i+1)+' (Ctrl+Z geri alır)');
+            D.markDirty(); toast('Deleted: '+base+'.'+(i+1)+' (Ctrl+Z undoes)');
         };
         row.append(num,nm,cnt,go,del); el.appendChild(row);
     });
     /* bu düğümün bağlantıları (solucan delikleri — defterler arası dahil) */
     if(sel.links.length){
-        const h=document.createElement('h4'); h.textContent='// Bağlantılar 🕳 ⇄ 🧠'; h.style.marginTop='6px';
+        const h=document.createElement('h4'); h.textContent='// Links 🕳 ⇄ 🧠'; h.style.marginTop='6px';
         el.appendChild(h);
         sel.links.forEach(id=>{
             const r=D.resolveLink(id); if(!r) return;
@@ -591,13 +592,13 @@ function renderSublist(){
                 row.appendChild(nb);
             }
             const num=document.createElement('span'); num.className='num'; num.textContent=D.address(t);
-            const nm=document.createElement('span'); nm.className='nm'; nm.textContent=t.title||'isimsiz';
-            const tp=document.createElement('span'); tp.className='tp'; tp.textContent='ışınlan ⇄';
+            const nm=document.createElement('span'); nm.className='nm'; nm.textContent=t.title||'untitled';
+            const tp=document.createElement('span'); tp.className='tp'; tp.textContent='teleport ⇄';
             tp.onclick=async()=>{
                 if(cross) await switchNotebook(r.nbIndex);
                 State.selNode=t; Engine.buildView(t); Controls.spawnNear(t); updatePanel();
-                toast(cross?('🧠 Işınlandın → '+State.notebooks[r.nbIndex].name+' · '+D.address(t))
-                           :('🕳 Işınlandın → '+D.address(t)));
+                toast(cross?('🧠 Teleported → '+State.notebooks[r.nbIndex].name+' · '+D.address(t))
+                           :('🕳 Teleported → '+D.address(t)));
             };
             const del=document.createElement('span'); del.className='del'; del.textContent='×';
             del.onclick=()=>{ D.unlink(sel,id); Engine.buildView(State.openNode); updatePanel(); };
@@ -617,11 +618,11 @@ function bindSearch(){
         t=setTimeout(()=>{
             const hits=D.search(inp.value);
             res.innerHTML='';
-            if(inp.value.trim() && !hits.length) res.innerHTML='<p class="empty" style="font-size:10px;color:#3d4452">sonuç yok</p>';
+            if(inp.value.trim() && !hits.length) res.innerHTML='<p class="empty" style="font-size:10px;color:var(--faint)">no results</p>';
             hits.forEach(h=>{
                 const row=document.createElement('div'); row.className='sr';
                 const num=document.createElement('span'); num.className='num'; num.textContent=D.address(h.node);
-                const tt=document.createElement('span'); tt.className='t'; tt.textContent=h.node.title||'isimsiz';
+                const tt=document.createElement('span'); tt.className='t'; tt.textContent=h.node.title||'untitled';
                 const sn=document.createElement('span'); sn.className='snip'; sn.textContent=h.snip;
                 row.append(num,tt,sn);
                 row.onclick=()=>{ /* sonuca uç: kamera otomatik o düğüme gider */
@@ -642,14 +643,14 @@ function bindTunnel(){
     $('btn-tunnel').onclick=openTunnel;
     $('tunnel-close').onclick=()=>$('tunnel').classList.remove('open');
     $('tunnel-snap').onclick=async()=>{
-        try{ await D.snapshotNow(); toast('⏳ Şu anki evren versiyonlandı.'); openTunnel(); }
-        catch(e){ toast('Versiyonlama için sunucu gerekli.'); }
+        try{ await D.snapshotNow(); toast('⏳ Current universe snapshotted.'); openTunnel(); }
+        catch(e){ toast('Versioning requires the server.'); }
     };
-    $('tunnel-undo').onclick=()=>{ const r=D.undo(); afterTimeShift(r,'↶ Geri alındı'); };
-    $('tunnel-redo').onclick=()=>{ const r=D.redo(); afterTimeShift(r,'↷ İleri alındı'); };
+    $('tunnel-undo').onclick=()=>{ const r=D.undo(); afterTimeShift(r,'↶ Undone'); };
+    $('tunnel-redo').onclick=()=>{ const r=D.redo(); afterTimeShift(r,'↷ Redone'); };
 }
 function afterTimeShift(root,msg){
-    if(!root){ toast('Gidilecek başka an yok.'); return; }
+    if(!root){ toast('No other moment to go to.'); return; }
     const addr=State.openNode?D.address(State.openNode):'0';
     const node=D.nodeByAddress(root, addr);
     State.selNode=node; Engine.buildView(node); updatePanel();
@@ -658,23 +659,23 @@ function afterTimeShift(root,msg){
 async function openTunnel(){
     $('tunnel').classList.add('open');
     const list=$('tunnel-list');
-    list.innerHTML='<p style="font-size:11px;color:#57606f">yükleniyor…</p>';
+    list.innerHTML='<p style="font-size:11px;color:#57606f">loading…</p>';
     const vers=await D.listVersions();
     list.innerHTML=vers.length?'':'<p style="font-size:11px;color:#57606f">'+
-        (State.serverOn?'Henüz versiyon yok — "Şimdiyi Versiyonla" ile başla. (Otomatik: her 10dk\'da bir)':'Sunucu kapalı: yalnız oturum içi Ctrl+Z/Y kullanılabilir.')+'</p>';
+        (State.serverOn?'No versions yet — start with "Snapshot Now". (Auto: every 10 min)':'Server off: only in-session Ctrl+Z/Y is available.')+'</p>';
     vers.slice().reverse().forEach(v=>{
         const row=document.createElement('div'); row.className='ver';
         const ts=document.createElement('span'); ts.className='ts';
-        ts.textContent='🌌 '+new Date(v.ts).toLocaleString('tr-TR');
-        const b=document.createElement('button'); b.textContent='BU EVRENE DÖN';
+        ts.textContent='🌌 '+new Date(v.ts).toLocaleString();
+        const b=document.createElement('button'); b.textContent='RETURN TO THIS UNIVERSE';
         b.onclick=async()=>{
             try{
                 const full=await D.getVersion(v.i);
                 const root=D.restoreRoot(full.root);
                 State.selNode=root; Engine.buildView(root); Controls.spawnNear(root);
                 $('tunnel').classList.remove('open');
-                toast('⏳ '+new Date(v.ts).toLocaleString('tr-TR')+' evrenine dönüldü (Ctrl+Z: geri).');
-            }catch(e){ toast('Versiyon yüklenemedi.'); }
+                toast('⏳ Returned to the universe of '+new Date(v.ts).toLocaleString()+' (Ctrl+Z: back).');
+            }catch(e){ toast('Failed to load version.'); }
         };
         row.append(ts,b); list.appendChild(row);
     });
@@ -694,10 +695,10 @@ function bindKeys(){
         }
         if(inField) return;
         if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='z' && !e.shiftKey){
-            e.preventDefault(); afterTimeShift(D.undo(),'↶ Geri alındı');
+            e.preventDefault(); afterTimeShift(D.undo(),'↶ Undone');
         }
         if((e.ctrlKey||e.metaKey) && (e.key.toLowerCase()==='y' || (e.shiftKey&&e.key.toLowerCase()==='z'))){
-            e.preventDefault(); afterTimeShift(D.redo(),'↷ İleri alındı');
+            e.preventDefault(); afterTimeShift(D.redo(),'↷ Redone');
         }
     });
 }
@@ -722,10 +723,10 @@ export async function switchNotebook(i){
 function bindButtons(){
     $('nb-select').addEventListener('change', e=>switchNotebook(+e.target.value));
     $('nb-new').onclick=async()=>{
-        const nb=await D.createNotebook('Defter '+(State.notebooks.length+1));
+        const nb=await D.createNotebook('Notebook '+(State.notebooks.length+1));
         refreshNbSelect(State.notebooks.length-1);
         await switchNotebook(State.notebooks.length-1);
-        toast('Yeni temiz defter: '+nb.name);
+        toast('New clean notebook: '+nb.name);
     };
     $('nb-rename').onclick=renameNotebook;
     $('btn-home').onclick=()=>{ const r=D.currentRoot(); if(!r) return;
@@ -734,15 +735,15 @@ function bindButtons(){
         if(State.openNode && State.openNode.parent){
             const p=State.openNode.parent;
             State.selNode=p; Engine.buildView(p); Controls.flyTo(p);
-        } else toast('Zaten ana merkezdesin.');
+        } else toast('Already at the main hub.');
     };
     $('btn-share').onclick=shareSubtree;
     $('btn-twod').onclick=openTwod;
     $('btn-topdown').onclick=()=>{
         const url=Engine.exportTopDown(); if(!url) return;
         const a=document.createElement('a'); a.href=url;
-        a.download='not-evreni-ustten-'+D.address(State.openNode).replace(/\./g,'-')+'.png'; a.click();
-        toast('Üstten (ortografik) PNG indirildi.');
+        a.download='note-universe-topdown-'+D.address(State.openNode).replace(/\./g,'-')+'.png'; a.click();
+        toast('Top-down (orthographic) PNG downloaded.');
     };
     $('btn-export').onclick=exportJSON;
     $('btn-import').onclick=()=>$('file-in').click();
@@ -763,26 +764,26 @@ function renameNotebook(){
 /* ============================================================== PAYLAŞIM */
 async function shareSubtree(){
     if(!State.selNode) return;
-    if(!State.serverOn){ toast('Paylaşım için backend gerekli: `node server.js`. Şimdilik ↓ JSON kullan.'); return; }
+    if(!State.serverOn){ toast('Sharing needs the backend: `node server.js`. Use ↓ JSON for now.'); return; }
     try{
         const r=await D.api('share',{method:'POST',
             body:JSON.stringify({name:State.selNode.title||D.address(State.selNode), root:D.toStd(State.selNode), focus:'0'})});
         const url=location.origin+r.url+'&depth='+State.renderDepth;
-        try{ await navigator.clipboard.writeText(url); toast('Paylaşım linki panoya kopyalandı 🔗'); }
+        try{ await navigator.clipboard.writeText(url); toast('Share link copied to clipboard 🔗'); }
         catch(e){ toast(url); }
-    }catch(e){ toast('Paylaşım başarısız — sunucuya ulaşılamadı.'); }
+    }catch(e){ toast('Share failed — server unreachable.'); }
 }
 
 /* ========================================= JSON dışa aktarım (gömme modu) */
 async function exportJSON(){
     const nb=D.currentNb(); if(!nb||!nb.root) return;
-    toast('Dışa aktarılıyor… (varlıklar gömülüyor)');
+    toast('Exporting… (embedding assets)');
     const std=D.toStd(nb.root);
     await embedAssets(std); // taşınabilirlik: dosya kendi kendine yeter
     const blob=new Blob([JSON.stringify({name:nb.name, root:std},null,1)],{type:'application/json'});
     const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
     a.download=nb.name.replace(/\s+/g,'-')+'.json'; a.click();
-    toast('Defter indirildi (standart şema + gömülü varlıklar).');
+    toast('Notebook downloaded (standard schema + embedded assets).');
 }
 async function embedAssets(std){
     for(const list of [std.images||[], std.docs||[]]){
@@ -810,7 +811,7 @@ function bindTwod(){
         const a=document.createElement('a');
         a.href=$('twod-cv').toDataURL('image/png');
         a.download='not-evreni-2d-'+D.address(twodRoot).replace(/\./g,'-')+'.png';
-        a.click(); toast('2B küme haritası PNG indirildi.');
+        a.click(); toast('2D cluster map PNG downloaded.');
     };
     $('twod-cv').addEventListener('click', e=>{
         const r=$('twod-cv').getBoundingClientRect(), x=e.clientX-r.left, y=e.clientY-r.top;
@@ -828,8 +829,9 @@ function drawTwod(){
     tcv.width=innerWidth*dpr; tcv.height=innerHeight*dpr;
     tcv.style.width=innerWidth+'px'; tcv.style.height=innerHeight+'px';
     tctx.setTransform(dpr,0,0,dpr,0,0);
-    tctx.fillStyle='#020208'; tctx.fillRect(0,0,innerWidth,innerHeight);
-    $('twod-title').textContent='🗺 '+D.address(twodRoot)+' — '+(twodRoot.title||'isimsiz')+' · kümeye tıkla: yeniden köklendir';
+    const light2d=themeIsLight();
+    tctx.fillStyle=light2d?'#eef1f7':'#020208'; tctx.fillRect(0,0,innerWidth,innerHeight);
+    $('twod-title').textContent='🗺 '+D.address(twodRoot)+' — '+(twodRoot.title||'untitled')+' · click a cluster: re-root';
 
     const cx=innerWidth/2, cy=innerHeight/2;
     const R0=Math.min(innerWidth,innerHeight)*0.42, MAXD=4, MAXN=400;
@@ -858,7 +860,7 @@ function drawTwod(){
         twodPlaced.push({x,y,r:R,node:n});
         /* etiket: kümenin üst iç kenarında */
         if(R>=22){
-            tctx.fillStyle=d===0?'#ff9aa5':'#a4b0be';
+            tctx.fillStyle=d===0?(light2d?'#b02a3a':'#ff9aa5'):(light2d?'#4a5568':'#a4b0be');
             tctx.font=(d===0?'bold 13px':(d===1?'11px':'10px'))+' Courier New';
             tctx.textAlign='center';
             const t=n.title||D.address(n);
@@ -867,7 +869,7 @@ function drawTwod(){
         const f=D.filledSlots(n);
         if(!f.length) return;
         if(d>=MAXD){ /* derinlik sınırı: kalan alt küme sayısını göster */
-            tctx.fillStyle='#57606f'; tctx.font='9px Courier New'; tctx.textAlign='center';
+            tctx.fillStyle=light2d?'#8b95a6':'#57606f'; tctx.font='9px Courier New'; tctx.textAlign='center';
             tctx.fillText('+'+f.length, x, y+4);
             return;
         }
@@ -887,8 +889,8 @@ function drawTwod(){
             place(n.slots[i], x+Math.cos(a)*rho, y+Math.sin(a)*rho, r, d+1);
         });
     })(twodRoot,cx,cy,R0,0);
-    tctx.fillStyle='#3d4452'; tctx.font='10px Courier New'; tctx.textAlign='left';
-    tctx.fillText('3D Kuantum Not Evreni · küme–alt küme indirgemesi · '+new Date().toLocaleDateString('tr-TR'),16,innerHeight-16);
+    tctx.fillStyle=light2d?'#8b95a6':'#3d4452'; tctx.font='10px Courier New'; tctx.textAlign='left';
+    tctx.fillText('3D Quantum Note Universe · cluster–subcluster reduction · '+new Date().toLocaleDateString(),16,innerHeight-16);
 }
 
 /* ============================== DEFTERLER ARASI BAĞLANTI SEÇİCİ (Obsidian) */
@@ -900,8 +902,8 @@ function bindXlink(){
 async function openXlink(){
     if(!State.selNode) return;
     await D.ensureAllRoots();
-    $('xlink-src').textContent='Kaynak: '+D.address(State.selNode)+' — '+(State.selNode.title||'isimsiz')+
-        ' ('+D.currentNb().name+') · hedefi seç, çift yönlü solucan deliği kurulur';
+    $('xlink-src').textContent='Source: '+D.address(State.selNode)+' — '+(State.selNode.title||'untitled')+
+        ' ('+D.currentNb().name+') · pick a target; a bidirectional wormhole is created';
     $('xlink-in').value='';
     $('xlink').classList.add('open');
     renderXlinkResults();
@@ -922,11 +924,11 @@ function renderXlinkResults(){
                 const row=document.createElement('div'); row.className='xr';
                 const bn=document.createElement('span'); bn.className='nb'; bn.textContent=nb.name;
                 const num=document.createElement('span'); num.className='num'; num.textContent=D.address(n);
-                const tt=document.createElement('span'); tt.className='t'; tt.textContent=n.title||'isimsiz';
+                const tt=document.createElement('span'); tt.className='t'; tt.textContent=n.title||'untitled';
                 row.append(bn,num,tt);
                 row.onclick=()=>{
                     if(D.linkNodesX(sel, n, nb)){
-                        toast('🧠 Bağlandı: '+(sel.title||D.address(sel))+' ⇄ '+(n.title||D.address(n))+
+                        toast('🧠 Linked: '+(sel.title||D.address(sel))+' ⇄ '+(n.title||D.address(n))+
                               (nb!==D.currentNb()?' ('+nb.name+')':''));
                         Engine.buildView(State.openNode); updatePanel();
                     }
@@ -937,7 +939,7 @@ function renderXlinkResults(){
             D.filledSlots(n).forEach(k=>walk(n.slots[k]));
         })(nb.root);
     });
-    if(!count) res.innerHTML='<p class="empty" style="font-size:11px;color:#3d4452">eşleşen not yok</p>';
+    if(!count) res.innerHTML='<p class="empty" style="font-size:11px;color:var(--faint)">no matching notes</p>';
 }
 
 /* ========================================== BEYİN GRAFİĞİ (Obsidian graph) ==
@@ -945,10 +947,29 @@ function renderXlinkResults(){
    soluk kenar = ağaç bağı, mor = solucan deliği, macenta kesikli =
    defterler arası köprü. Tıkla → o deftere geç ve düğüme uç.            */
 let brainOn=false, bG=null, bView={x:0,y:0,s:1}, bDrag=null, bHover=-1, bRAF=0, bIter=0;
+let bDirty=true, bSearch='', bMatches=new Set();
 const nbColor=i=>'#'+PALETTE[i%PALETTE.length].toString(16).padStart(6,'0');
 function bindBrain(){
     $('btn-brain').onclick=openBrain;
     $('brain-close').onclick=closeBrain;
+    /* beyin içi arama: eşleşenler parlar, diğerleri söner; Enter → ilkine git */
+    let bt=null;
+    $('brain-in').addEventListener('input',()=>{
+        clearTimeout(bt);
+        bt=setTimeout(()=>{
+            bSearch=$('brain-in').value.trim().toLowerCase();
+            bMatches.clear();
+            if(bSearch && bG) bG.nodes.forEach((n,i)=>{
+                if((n.node.title||'').toLowerCase().includes(bSearch) ||
+                   stripHtml(n.node.html).toLowerCase().includes(bSearch)) bMatches.add(i);
+            });
+            bDirty=true;
+        },200);
+    });
+    $('brain-in').addEventListener('keydown',e=>{
+        if(e.key==='Enter' && bMatches.size) gotoBrainNode([...bMatches][0]);
+        if(e.key==='Escape') $('brain-in').blur();
+    });
     const cv=$('brain-cv');
     cv.addEventListener('wheel',e=>{
         e.preventDefault();
@@ -956,15 +977,15 @@ function bindBrain(){
         /* imlece doğru yakınlaş */
         bView.x=e.clientX-(e.clientX-bView.x)*(s2/bView.s);
         bView.y=e.clientY-(e.clientY-bView.y)*(s2/bView.s);
-        bView.s=s2;
+        bView.s=s2; bDirty=true;
     },{passive:false});
     cv.addEventListener('mousedown',e=>{ bDrag={x:e.clientX,y:e.clientY,moved:false}; cv.classList.add('dragging'); });
     window.addEventListener('mousemove',e=>{
         if(!brainOn) return;
         if(bDrag){
             if(Math.hypot(e.clientX-bDrag.x,e.clientY-bDrag.y)>4) bDrag.moved=true;
-            bView.x+=e.movementX; bView.y+=e.movementY;
-        } else bHover=pickBrain(e);
+            bView.x+=e.movementX; bView.y+=e.movementY; bDirty=true;
+        } else { const h=pickBrain(e); if(h!==bHover){ bHover=h; bDirty=true; } }
     });
     window.addEventListener('mouseup',e=>{
         if(!brainOn) return;
@@ -974,10 +995,10 @@ function bindBrain(){
     });
 }
 async function openBrain(){
-    toast('🧠 Beyin ağı kuruluyor…');
+    toast('🧠 Building the brain network…');
     await D.ensureAllRoots();
     bG=D.brainGraph();
-    if(bG.capped) toast('Grafik ilk '+bG.nodes.length+' düğümle sınırlandı.');
+    if(bG.capped) toast('Graph limited to the first '+bG.nodes.length+' nodes.');
     /* başlangıç: her defter çember üzerinde bir küme merkezi + saçılım */
     const K=Math.max(State.notebooks.length,1), spread=K>1?280:0;
     bG.anchors=[];
@@ -990,13 +1011,15 @@ async function openBrain(){
         n.vx=0; n.vy=0;
     });
     brainOn=true; bHover=-1; bIter=REDUCED?40:170;
+    bSearch=''; bMatches.clear(); $('brain-in').value='';
     bView={x:innerWidth/2, y:innerHeight/2, s:1};
     $('brain').classList.add('open');
     cancelAnimationFrame(bRAF);
     (function loop(){
         if(!brainOn) return;
-        if(bIter>0){ stepBrain(bIter>90?3:1); bIter--; }
-        drawBrain();
+        /* performans: yerleşim bitince yalnız etkileşimde yeniden çiz */
+        if(bIter>0){ stepBrain(bIter>90?3:1); bIter--; drawBrain(); }
+        else if(bDirty){ drawBrain(); bDirty=false; }
         bRAF=requestAnimationFrame(loop);
     })();
 }
@@ -1013,11 +1036,11 @@ function stepBrain(steps){
                 a.vx+=dx*f; a.vy+=dy*f; b.vx-=dx*f; b.vy-=dy*f;
             }
         }
-        for(const e of E){ // yaylar: ağaç kısa, solucan/köprü uzun
+        for(const e of E){ // yaylar: ağaç kısa, ikiz orta, solucan/köprü uzun
             const a=N[e.a], b=N[e.b];
             const dx=b.x-a.x, dy=b.y-a.y, d=Math.hypot(dx,dy)||1;
-            const rest=e.type==='tree'?44:130;
-            const f=(d-rest)*(e.type==='tree'?0.014:0.006)/d;
+            const rest=e.type==='tree'?44:(e.type==='twin'?95:130);
+            const f=(d-rest)*(e.type==='tree'?0.014:(e.type==='twin'?0.010:0.006))/d;
             a.vx+=dx*f; a.vy+=dy*f; b.vx-=dx*f; b.vy-=dy*f;
         }
         for(const n of N){ // küme çekimi + sönümleme
@@ -1035,31 +1058,38 @@ function drawBrain(){
     if(cv.width!==innerWidth*dpr){ cv.width=innerWidth*dpr; cv.height=innerHeight*dpr;
         cv.style.width=innerWidth+'px'; cv.style.height=innerHeight+'px'; }
     x.setTransform(dpr,0,0,dpr,0,0);
-    x.fillStyle='#020208'; x.fillRect(0,0,innerWidth,innerHeight);
+    const light=themeIsLight();
+    x.fillStyle=light?'#eef1f7':'#020208'; x.fillRect(0,0,innerWidth,innerHeight);
     x.translate(bView.x,bView.y); x.scale(bView.s,bView.s);
-    const N=bG.nodes;
-    for(const e of bG.edges){ // kenarlar
+    const N=bG.nodes, searching=bMatches.size>0||bSearch;
+    for(const e of bG.edges){ /* kenarlar: BAĞLI kümeler ağaç bağlarından
+        belirgin biçimde kalın — ikiz kalınlığı paylaşılan çocuk sayısıyla artar */
         const a=N[e.a], b=N[e.b];
-        if(e.type==='tree'){ x.strokeStyle='rgba(120,130,160,0.16)'; x.lineWidth=1/bView.s; x.setLineDash([]); }
-        else if(e.type==='worm'){ x.strokeStyle='rgba(125,95,255,0.55)'; x.lineWidth=1.4/bView.s; x.setLineDash([]); }
-        else{ x.strokeStyle='rgba(255,95,208,0.75)'; x.lineWidth=1.8/bView.s; x.setLineDash([6/bView.s,5/bView.s]); }
+        if(e.type==='tree'){ x.strokeStyle=light?'rgba(70,85,110,0.18)':'rgba(120,130,160,0.16)'; x.lineWidth=0.8/bView.s; x.setLineDash([]); }
+        else if(e.type==='worm'){ x.strokeStyle='rgba(125,95,255,0.8)'; x.lineWidth=2.4/bView.s; x.setLineDash([]); }
+        else if(e.type==='twin'){ x.strokeStyle=light?'rgba(168,106,0,0.85)':'rgba(255,165,2,0.8)';
+            x.lineWidth=(2+0.5*Math.min(e.w||1,6))/bView.s; x.setLineDash([]); }
+        else{ x.strokeStyle='rgba(255,95,208,0.85)'; x.lineWidth=2.8/bView.s; x.setLineDash([6/bView.s,5/bView.s]); }
         x.beginPath(); x.moveTo(a.x,a.y); x.lineTo(b.x,b.y); x.stroke();
     }
     x.setLineDash([]);
-    N.forEach((n,i)=>{ // düğümler: renk = defter, boyut = derece
-        const r=(n.isRoot?7:3)+Math.min(n.deg,10)*0.55;
+    N.forEach((n,i)=>{ /* düğümler: renk = defter, derinlikle KÜÇÜLEN boyut */
+        const r=(n.isRoot?9:Math.max(7-n.depth*1.4,2.2))+Math.min(n.deg,8)*0.4;
+        const match=bMatches.has(i);
+        x.globalAlpha=searching&&!match?0.22:1;
         x.fillStyle=nbColor(n.nbIndex);
         x.beginPath(); x.arc(n.x,n.y,r,0,Math.PI*2); x.fill();
-        if(i===bHover || n.node===State.selNode){
-            x.strokeStyle='#fff'; x.lineWidth=1.4/bView.s;
+        if(match || i===bHover || n.node===State.selNode){
+            x.strokeStyle=light?'#141a24':'#fff'; x.lineWidth=1.4/bView.s;
             x.beginPath(); x.arc(n.x,n.y,r+3/bView.s,0,Math.PI*2); x.stroke();
         }
-        if(n.isRoot || i===bHover || (n.deg>=5 && bView.s>0.5)){
-            x.fillStyle=n.isRoot?nbColor(n.nbIndex):'#a4b0be';
+        if(n.isRoot || i===bHover || match || (n.deg>=5 && bView.s>0.5)){
+            x.fillStyle=n.isRoot?nbColor(n.nbIndex):(light?'#4a5568':'#a4b0be');
             x.font=(n.isRoot?'bold 13px':'10px')+' Courier New'; x.textAlign='center';
             const t=n.isRoot?State.notebooks[n.nbIndex].name:(n.node.title||D.address(n.node));
             x.fillText(t.length>24?t.slice(0,23)+'…':t, n.x, n.y+r+12/bView.s);
         }
+        x.globalAlpha=1;
     });
     x.setTransform(dpr,0,0,dpr,0,0); // gösterge
     x.font='10px Courier New'; x.textAlign='left';
@@ -1067,15 +1097,16 @@ function drawBrain(){
         x.fillStyle=nbColor(i);
         x.fillText('● '+nb.name, 16, innerHeight-34-i*14);
     });
-    x.fillStyle='#3d4452';
-    x.fillText('🧠 '+N.length+' düğüm · mor: solucan deliği · macenta kesikli: defterler arası köprü', 16, innerHeight-16);
+    x.fillStyle=light?'#8b95a6':'#3d4452';
+    x.fillText('🧠 '+N.length+' nodes · purple: wormhole · dashed magenta: cross-notebook bridge · amber: twin clusters'+
+        (searching?' · '+bMatches.size+' match(es)':''), 16, innerHeight-16);
 }
 function pickBrain(e){
     if(!bG) return -1;
     const wx=(e.clientX-bView.x)/bView.s, wy=(e.clientY-bView.y)/bView.s;
     let best=-1, bd=Infinity;
     bG.nodes.forEach((n,i)=>{
-        const r=(n.isRoot?7:3)+Math.min(n.deg,10)*0.55+6/bView.s;
+        const r=(n.isRoot?9:Math.max(7-n.depth*1.4,2.2))+Math.min(n.deg,8)*0.4+6/bView.s;
         const d=Math.hypot(wx-n.x,wy-n.y);
         if(d<r && d<bd){ bd=d; best=i; }
     });
@@ -1091,6 +1122,71 @@ async function gotoBrainNode(i){
     Controls.spawnNear(rec.node);
     updatePanel();
     toast('🧠 '+State.notebooks[rec.nbIndex].name+' · '+D.address(rec.node)+(rec.node.title?' — '+rec.node.title:''));
+}
+
+/* ============================================================== TEMA ======
+   Karanlık/aydınlık: CSS değişkenleri + Engine sahne renkleri + açık
+   katmanların yeniden çizimi. Tercih localStorage'da; ilk değer sistemden. */
+function themeIsLight(){ return document.documentElement.dataset.theme==='light'; }
+function setTheme(light, silent){
+    document.documentElement.dataset.theme=light?'light':'dark';
+    try{ localStorage.setItem('nu-theme', light?'light':'dark'); }catch(e){}
+    Engine.applyTheme(light);
+    if($('twod').classList.contains('open')) drawTwod();
+    if(brainOn) bDirty=true;
+    if(!silent) toast(light?'☀️ Light theme':'🌙 Dark theme');
+}
+function bindTheme(){
+    let light=false;
+    try{
+        const saved=localStorage.getItem('nu-theme');
+        light = saved ? saved==='light' : matchMedia('(prefers-color-scheme: light)').matches;
+    }catch(e){}
+    setTheme(light, true);
+    $('btn-theme').onclick=()=>setTheme(!themeIsLight());
+}
+
+/* ===================================== CANLI MCP SENKRONU (Claude yazarken) =
+   Sunucudaki updatedAt damgaları 6 sn'de bir karşılaştırılır; yalnız sekme
+   görünürken, bekleyen yerel kayıt yokken ve kullanıcı yazmıyorken çalışır —
+   işlemciyi yormaz. Değişen defter açıksa görünüm yerinde tazelenir.        */
+function startMcpSync(){
+    if(!State.serverOn || !State.user) return;
+    setInterval(mcpSyncTick, 6000);
+}
+async function mcpSyncTick(){
+    if(document.hidden || !State.serverOn || !State.user) return;
+    if(D.hasPendingSave()) return;
+    const a=document.activeElement;
+    if(a && (a.tagName==='INPUT' || a.tagName==='TEXTAREA' || a.isContentEditable)) return;
+    try{
+        const list=await D.api('notebooks');
+        let selChanged=false;
+        for(const m of list){
+            const nb=State.notebooks.find(n=>n.id===m.id);
+            if(!nb){
+                State.notebooks.push({id:m.id, name:m.name, root:null, updatedAt:m.updatedAt||0});
+                refreshNbSelect(State.nbIndex);
+                toast('🤖 New notebook via MCP: '+m.name);
+                continue;
+            }
+            if(!nb.updatedAt){ nb.updatedAt=m.updatedAt||0; continue; }
+            if((m.updatedAt||0)>nb.updatedAt){
+                nb.updatedAt=m.updatedAt; nb.name=m.name;
+                if(nb===D.currentNb()){
+                    const openAddr=State.openNode?D.address(State.openNode):'0';
+                    const full=await D.api('notebooks/'+nb.id);
+                    nb.root=D.fromStd(full.root);
+                    D.rebuildIndex();
+                    const node=D.nodeByAddress(nb.root, openAddr);
+                    State.selNode=node; Engine.buildView(node);
+                    toast('🤖 Notebook updated live (MCP)');
+                } else nb.root=null; /* sonraki geçişte taze yüklenir */
+                selChanged=true;
+            }
+        }
+        if(selChanged) refreshNbSelect(State.nbIndex);
+    }catch(e){}
 }
 
 /* ============================================================ TOAST + TIP */

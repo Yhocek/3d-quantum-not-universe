@@ -32,7 +32,12 @@
 | ⏳ **Time Tunnel** | Version history with auto-snapshots (10min) + manual saves; session Ctrl+Z/Y |
 | 🗺️ **2D Reduction** | Nested cluster–subcluster map via pure Canvas 2D — each note is a circle, children live inside it |
 | 🤖 **MCP Server** | Zero-dependency MCP bridge (`mcp-server.js`) — Claude (or any LLM) connects to your universe: read, search, add, update notes |
-| 🗂️ **Auto-Categorization** | Connected LLMs file conversations & code into a hierarchy (`Dersler/Matematik/Calculus/Calculus1 Notları`) via `file_note` — the universe grows itself |
+| 🗂️ **Auto-Categorization** | Connected LLMs file conversations & code into a hierarchy (`Courses/Math/Calculus/Calculus1 Notes`) via `file_note` — the universe grows itself |
+| 🤖 **Live MCP Sync** | Notes written by Claude via MCP appear in the open browser within seconds — no reload |
+| 🔗 **Twin Clusters** | Clusters sharing the same title path across notebooks (`Courses/Math` in both) are auto-bonded with thick amber edges in the brain graph |
+| 🎨 **Dark & Light Themes** | One-click toggle (◐), system-preference default, persisted; 3D scene, 2D map and brain graph all follow |
+| 🌍 **English UI** | All in-app text is English — use Google Translate for any language |
+| ⚡ **Performance-First** | Idle frame limiter (60→30→15 fps), dirty-flag graph redraws, visibility-gated sync polling — GPU/CPU stay cool |
 | 🛣️ **CH Route Search** | Shared maps are searchable by LLMs with real **Contraction Hierarchies** — shortest routes over tree bonds + wormholes |
 | 🧠 **Brain Network** | Obsidian-style: cross-notebook wormholes, `[[wikilinks]]`, and a force-directed **brain graph** of all notebooks as one neural network |
 | 📐 **Screen Sync** | Adaptive FOV for ultrawide/curved monitors, DPR re-sync across monitors, dynamic viewport + safe-area + pinch-zoom on mobile |
@@ -205,6 +210,23 @@ The 54 slots are distributed across 7 latitude rings:
 
 ---
 
+## 🎨 Dark & Light Themes
+
+The ◐ button in the HUD toggles themes; the choice persists in `localStorage` and defaults to your system preference. The whole stack follows one variable contract: CSS custom properties for every panel, the Three.js scene (background, fog, star color, label colors) via `Engine.applyTheme()`, and both Canvas overlays (2D map, brain graph). On light theme the bloom threshold is raised automatically so the pale background doesn't glow.
+
+---
+
+## ⚡ Performance-First
+
+Priority: don't tire the machine. The renderer works hard only when you do:
+
+- **Idle frame limiter** — after 4 s without input the main loop drops to ~30 fps, after 60 s to ~15 fps; the first pointer/key event instantly restores full rate. Background tabs cost zero (rAF pauses).
+- **Dirty-flag graph drawing** — the brain graph runs its force layout for a fixed number of iterations, then redraws only on pan/zoom/hover/search changes instead of every frame.
+- **Visibility-gated sync** — the 6 s MCP live-sync poll skips hidden tabs, pending local saves, and active typing.
+- **Batching as before** — 2 InstancedMeshes for all atoms/slots, 1 draw call for bonds; the CH index and share caches are built once and reused.
+
+---
+
 ## 📐 Screen Sync — Mobile & Curved/Ultrawide Monitors
 
 The renderer keeps itself synchronized with whatever screen it lands on:
@@ -270,11 +292,11 @@ Working inside this repo? Claude Code auto-discovers `.mcp.json` — just export
 The MCP server ships `instructions` that tell any connected LLM to file every noteworthy conversation, code solution, or learned fact with `file_note` under a hierarchical category path:
 
 ```
-file_note(category_path: "Dersler/Matematik/Calculus/Calculus1 Notları",
-          title: "Limit tanımı", html: "<p>epsilon-delta…</p>")
+file_note(category_path: "Courses/Math/Calculus/Calculus1 Notes",
+          title: "Limit definition", html: "<p>epsilon-delta…</p>")
 ```
 
-Missing category nodes are created on the fly; existing ones are matched case-insensitively and reused, so repeated sessions keep building the *same* tree instead of duplicating branches. Everything lands in the **"Claude Evreni"** notebook by default (override with `notebook`). The result: over time your conversations self-organize into a giant navigable 3D universe — `Dersler → Matematik → Calculus → Calculus1 Notları` — while manual editing in the browser keeps working exactly as before; the LLM is told to respect the structure you shape by hand.
+Missing category nodes are created on the fly; existing ones are matched case-insensitively and reused, so repeated sessions keep building the *same* tree instead of duplicating branches. Everything lands in the **"Claude Universe"** notebook by default (override with `notebook`). The result: over time your conversations self-organize into a giant navigable 3D universe — `Courses → Math → Calculus → Calculus1 Notes` — while manual editing in the browser keeps working exactly as before; the LLM is told to respect the structure you shape by hand. And it is **live**: the browser polls `updatedAt` stamps every 6 s (only while the tab is visible and you are not mid-edit), so notes Claude writes appear in the open 3D view within seconds.
 
 ### 🛣️ Contraction Hierarchies — finding things in shared maps
 
@@ -290,10 +312,12 @@ When someone shares a map with you (`?s=...` link), a connected LLM can search i
 
 Notebooks are no longer isolated universes — they weave into one multi-dimensional neural network, the way an [Obsidian](https://obsidian.md) vault does:
 
-- **Cross-notebook wormholes** — the note panel's *"🧠 Defterler Arası Bağla"* button opens a picker that searches every notebook; one click creates a bidirectional link. In 3D, cross-notebook links appear as **magenta portals**: click one and you teleport into the other notebook, straight to the target note. Link format is `notebookId:nodeId` (≤64 chars), so the server schema is untouched.
+- **Cross-notebook wormholes** — the note panel's *"🧠 Link Across Notebooks"* button opens a picker that searches every notebook; one click creates a bidirectional link. In 3D, cross-notebook links appear as **magenta portals**: click one and you teleport into the other notebook, straight to the target note. Link format is `notebookId:nodeId` (≤64 chars), so the server schema is untouched.
 - **`[[Wikilinks]]`** — type `[[Projeler]]` anywhere in a note body; on blur, every `[[title]]` that matches an existing note (in *any* notebook) automatically becomes a wormhole. The body text stays as you wrote it — the graph grows underneath.
-- **🧠 Brain graph view** — the BEYİN button renders every notebook in a single force-directed graph (pure Canvas 2D): node color = notebook, node size = degree, faint edges = tree bonds, purple = wormholes, dashed magenta = cross-notebook bridges. Wheel to zoom, drag to pan, click a node to jump there in 3D — across notebooks if needed.
-- **Links panel** — each note lists its connections with a notebook badge on foreign ones; *ışınlan ⇄* teleports across notebooks.
+- **🧠 Brain graph view** — the BRAIN button renders every notebook in a single force-directed graph (pure Canvas 2D): node color = notebook, node size **shrinks with depth** (fractal silhouette), faint thin edges = tree bonds, thick purple = wormholes, thick dashed magenta = cross-notebook bridges — linked clusters are always visibly heavier than unlinked ones. Wheel to zoom, drag to pan, click a node to jump there in 3D — across notebooks if needed.
+- **Twin clusters** — clusters with the same title path in different notebooks (e.g. `Courses` and `Courses/Math` existing in two notebooks) are automatically bonded with **amber edges whose thickness grows with the number of shared child titles**. The shape of your knowledge emerges by itself.
+- **In-brain search** — the search bar inside the graph highlights matching nodes and dims the rest; Enter jumps straight to the first match.
+- **Links panel** — each note lists its connections with a notebook badge on foreign ones; *teleport ⇄* jumps across notebooks.
 - **LLMs weave too** — the MCP `link_notes` tool (with `target_notebook_id`) lets Claude connect related concepts across notebooks ("Calculus" ⇄ "Fizik/Hareket"), and the server instructions tell it to do so — your knowledge self-organizes into a brain.
 
 ---

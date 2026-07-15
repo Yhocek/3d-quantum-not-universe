@@ -139,19 +139,19 @@ const isStr = (v, max) => typeof v === 'string' && v.length <= max;
 function validateRoot(root) {
     let count = 0;
     (function walk(n, depth) {
-        if (depth > 12) throw new Error('ağaç çok derin');
-        if (++count > 50000) throw new Error('çok fazla düğüm');
-        if (!n || typeof n !== 'object' || Array.isArray(n)) throw new Error('geçersiz düğüm');
-        if (n.label != null && !isStr(n.label, 200)) throw new Error('label çok uzun');
-        if (n.html != null && !isStr(n.html, 200000)) throw new Error('html çok uzun');
+        if (depth > 12) throw new Error('tree too deep');
+        if (++count > 50000) throw new Error('too many nodes');
+        if (!n || typeof n !== 'object' || Array.isArray(n)) throw new Error('invalid node');
+        if (n.label != null && !isStr(n.label, 200)) throw new Error('label too long');
+        if (n.html != null && !isStr(n.html, 200000)) throw new Error('html too long');
         for (const key of ['images', 'docs', 'links', 'children'])
-            if (n[key] != null && (!Array.isArray(n[key]) || n[key].length > 500)) throw new Error(key + ' geçersiz');
+            if (n[key] != null && (!Array.isArray(n[key]) || n[key].length > 500)) throw new Error(key + ' invalid');
         for (const a of (n.images || []).concat(n.docs || [])) {
-            if (a && a.dataURL != null) throw new Error('varlıklar gömülemez; /api/assets kullan');
-            if (a && a.assetId != null && !isStr(a.assetId, 40)) throw new Error('assetId geçersiz');
-            if (a && a.name != null && !isStr(a.name, 200)) throw new Error('dosya adı çok uzun');
+            if (a && a.dataURL != null) throw new Error('assets cannot be embedded; use /api/assets');
+            if (a && a.assetId != null && !isStr(a.assetId, 40)) throw new Error('invalid assetId');
+            if (a && a.name != null && !isStr(a.name, 200)) throw new Error('file name too long');
         }
-        for (const l of (n.links || [])) if (!isStr(l, 64)) throw new Error('link id geçersiz');
+        for (const l of (n.links || [])) if (!isStr(l, 64)) throw new Error('invalid link id');
         (n.children || []).forEach(c => walk(c, depth + 1));
     })(root, 0);
 }
@@ -212,22 +212,22 @@ async function handleAPI(req, res, parts) {
     const mutating = req.method !== 'GET' && req.method !== 'HEAD';
 
     /* genel IP hız sınırı */
-    if (!rateLimit('api:' + ip, 300, 60000)) return sendJSON(res, 429, { error: 'çok fazla istek' });
+    if (!rateLimit('api:' + ip, 300, 60000)) return sendJSON(res, 429, { error: 'too many requests' });
 
-    if (resource === 'health') return sendJSON(res, 200, { ok: true, name: '3D Not Evreni API', auth: true });
+    if (resource === 'health') return sendJSON(res, 200, { ok: true, name: '3D Quantum Note Universe API', auth: true });
 
     /* ---------------------------- KİMLİK ---------------------------- */
     if (resource === 'auth') {
         if (id === 'register' && req.method === 'POST') {
-            if (!rateLimit('reg:' + ip, 5, 3600000)) return sendJSON(res, 429, { error: 'kayıt sınırı — sonra dene' });
+            if (!rateLimit('reg:' + ip, 5, 3600000)) return sendJSON(res, 429, { error: 'registration limit — try later' });
             const b = await readBody(req, LIMIT_DEFAULT);
             if (!isStr(b.username, 32) || !USERNAME_RE.test(b.username))
-                return sendJSON(res, 400, { error: 'kullanıcı adı: 3-32 karakter, harf/rakam/._-' });
+                return sendJSON(res, 400, { error: 'username: 3-32 chars, letters/digits/._-' });
             if (!isStr(b.password, 256) || b.password.length < 10)
-                return sendJSON(res, 400, { error: 'parola en az 10 karakter olmalı' });
+                return sendJSON(res, 400, { error: 'password must be at least 10 characters' });
             const uname = b.username.toLowerCase();
             if (db.users.some(u => u.username === uname))
-                return sendJSON(res, 409, { error: 'bu kullanıcı adı alınmış' });
+                return sendJSON(res, 409, { error: 'this username is taken' });
             const user = { id: 'u' + rnd(6), username: uname, pass: hashPassword(b.password), createdAt: Date.now() };
             db.users.push(user);
             /* eski sürümlerden kalan sahipsiz defterleri İLK kullanıcı devralır */
@@ -238,17 +238,17 @@ async function handleAPI(req, res, parts) {
             return sendJSON(res, 201, { user: { id: user.id, username: uname }, csrf: db.sessions[sha256(token)].csrf });
         }
         if (id === 'login' && req.method === 'POST') {
-            if (!rateLimit('login:' + ip, 20, 600000)) return sendJSON(res, 429, { error: 'çok fazla deneme — sonra dene' });
+            if (!rateLimit('login:' + ip, 20, 600000)) return sendJSON(res, 429, { error: 'too many attempts — try later' });
             const b = await readBody(req, LIMIT_DEFAULT);
             const uname = String(b.username || '').toLowerCase();
             const lockKey = uname + '@' + ip;
-            if (locked(lockKey)) { audit('login_locked', { username: uname, ip }); return sendJSON(res, 429, { error: 'hesap geçici kilitli — 15 dk sonra dene' }); }
+            if (locked(lockKey)) { audit('login_locked', { username: uname, ip }); return sendJSON(res, 429, { error: 'account temporarily locked — try again in 15 min' }); }
             const user = db.users.find(u => u.username === uname);
             const ok = verifyPassword(String(b.password || ''), user && user.pass);
             if (!ok || !user) {
                 recordFail(lockKey, ip);
                 audit('login_fail', { username: uname, ip });
-                return sendJSON(res, 401, { error: 'kullanıcı adı veya parola hatalı' }); // sayım koruması: tek mesaj
+                return sendJSON(res, 401, { error: 'wrong username or password' }); // sayım koruması: tek mesaj
             }
             fails.delete(lockKey);
             const token = createSession(user.id);
@@ -266,7 +266,7 @@ async function handleAPI(req, res, parts) {
             const s = getSession(req);
             if (!s) return sendJSON(res, 401, { error: 'oturum yok' });
             const u = db.users.find(x => x.id === s.uid);
-            if (!u) return sendJSON(res, 401, { error: 'oturum geçersiz' });
+            if (!u) return sendJSON(res, 401, { error: 'invalid session' });
             return sendJSON(res, 200, { user: { id: u.id, username: u.username }, csrf: s.csrf });
         }
         return sendJSON(res, 404, { error: 'bilinmeyen auth ucu' });
@@ -275,17 +275,17 @@ async function handleAPI(req, res, parts) {
     /* ---------------- paylaşım GET herkese açık (link = yetki) -------------- */
     if (resource === 'share' && req.method === 'GET' && id) {
         const s = db.shares[String(id).replace(/[^a-f0-9]/g, '')];
-        return s ? sendJSON(res, 200, s) : sendJSON(res, 404, { error: 'paylaşım bulunamadı' });
+        return s ? sendJSON(res, 200, s) : sendJSON(res, 404, { error: 'share not found' });
     }
 
     /* ---------------- buradan sonrası OTURUM ister ---------------- */
     const session = getSession(req);
-    if (!session) return sendJSON(res, 401, { error: 'giriş gerekli' });
+    if (!session) return sendJSON(res, 401, { error: 'login required' });
     const uid = session.uid;
     /* CSRF: tüm mutasyonlarda oturuma bağlı başlık zorunlu */
     if (mutating && req.headers['x-csrf'] !== session.csrf) {
         audit('csrf_reject', { uid, ip, path: req.url });
-        return sendJSON(res, 403, { error: 'csrf doğrulaması başarısız' });
+        return sendJSON(res, 403, { error: 'CSRF validation failed' });
     }
 
     if (resource === 'notebooks') {
@@ -293,7 +293,7 @@ async function handleAPI(req, res, parts) {
         if (req.method === 'GET' && !id)
             return sendJSON(res, 200, mine.map(n => ({ id: n.id, name: n.name, updatedAt: n.updatedAt })));
         if (req.method === 'POST' && !id) {
-            if (mine.length >= 100) return sendJSON(res, 400, { error: 'defter sınırı (100)' });
+            if (mine.length >= 100) return sendJSON(res, 400, { error: 'notebook limit (100)' });
             const b = await readBody(req, LIMIT_TREE);
             const root = b.root || emptyRoot();
             try { validateRoot(root); } catch (e) { return sendJSON(res, 400, { error: e.message }); }
@@ -303,7 +303,7 @@ async function handleAPI(req, res, parts) {
             return sendJSON(res, 201, { id: nb.id, name: nb.name, root: nb.root });
         }
         const nb = db.notebooks.find(n => n.id === id && n.uid === uid); // izolasyon: yalnız sahibi
-        if (!nb) return sendJSON(res, 404, { error: 'defter bulunamadı' });
+        if (!nb) return sendJSON(res, 404, { error: 'notebook not found' });
 
         if (sub === 'versions') {
             nb.versions = nb.versions || [];
@@ -343,7 +343,7 @@ async function handleAPI(req, res, parts) {
 
     if (resource === 'share') {
         if (req.method === 'POST' && !id) {
-            if (!rateLimit('share:' + ip, 30, 3600000)) return sendJSON(res, 429, { error: 'paylaşım sınırı' });
+            if (!rateLimit('share:' + ip, 30, 3600000)) return sendJSON(res, 429, { error: 'share limit' });
             const b = await readBody(req, LIMIT_TREE);
             if (!b.root) return sendJSON(res, 400, { error: 'root gerekli' });
             try { validateRoot(b.root); } catch (e) { return sendJSON(res, 400, { error: e.message }); }
@@ -356,7 +356,7 @@ async function handleAPI(req, res, parts) {
                     if (rec.uid === uid) db.publicAssets[rec.id] = true;
                 } catch (e) {}
             }
-            db.shares[sid] = { id: sid, uid, name: isStr(b.name, 80) ? b.name : 'Paylaşılan Küme',
+            db.shares[sid] = { id: sid, uid, name: isStr(b.name, 80) ? b.name : 'Shared Cluster',
                                root: b.root, focus: isStr(b.focus, 100) ? b.focus : '0', createdAt: Date.now() };
             saveDB();
             audit('share_create', { uid, sid, ip });
@@ -366,13 +366,13 @@ async function handleAPI(req, res, parts) {
 
     if (resource === 'assets') {
         if (req.method === 'POST' && !id) {
-            if (!rateLimit('asset:' + uid, 60, 600000)) return sendJSON(res, 429, { error: 'yükleme sınırı' });
+            if (!rateLimit('asset:' + uid, 60, 600000)) return sendJSON(res, 429, { error: 'upload limit' });
             const b = await readBody(req, LIMIT_ASSET);
             if (!isStr(b.dataURL, LIMIT_ASSET) || !ASSET_MIME_RE.test(b.dataURL))
-                return sendJSON(res, 400, { error: 'desteklenmeyen veya güvensiz dosya türü' });
+                return sendJSON(res, 400, { error: 'unsupported or unsafe file type' });
             const aid = String(b.id || 'a' + rnd(6)).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 40) || ('a' + rnd(6));
             if (fs.existsSync(assetPath(aid))) { // id çakışması: yalnız sahibi üstüne yazabilir
-                try { if (JSON.parse(fs.readFileSync(assetPath(aid), 'utf8')).uid !== uid) return sendJSON(res, 403, { error: 'bu id kullanımda' }); } catch (e) {}
+                try { if (JSON.parse(fs.readFileSync(assetPath(aid), 'utf8')).uid !== uid) return sendJSON(res, 403, { error: 'this id is in use' }); } catch (e) {}
             }
             fs.mkdirSync(path.join(DATA_DIR, 'assets'), { recursive: true });
             fs.writeFileSync(assetPath(aid), JSON.stringify({
@@ -386,13 +386,13 @@ async function handleAPI(req, res, parts) {
             try {
                 const rec = JSON.parse(fs.readFileSync(assetPath(safe), 'utf8'));
                 if (rec.uid !== uid && !db.publicAssets[rec.id]) // izolasyon: sahibi ya da paylaşımla açılmış
-                    return sendJSON(res, 403, { error: 'bu varlığa erişimin yok' });
+                    return sendJSON(res, 403, { error: 'you cannot access this asset' });
                 return sendJSON(res, 200, rec);
-            } catch (e) { return sendJSON(res, 404, { error: 'varlık bulunamadı' }); }
+            } catch (e) { return sendJSON(res, 404, { error: 'asset not found' }); }
         }
     }
 
-    sendJSON(res, 404, { error: 'bilinmeyen uç nokta' });
+    sendJSON(res, 404, { error: 'unknown endpoint' });
 }
 
 /* ---------------------- statik: ETag + Cache-Control + gzip ---------------- */
@@ -452,6 +452,6 @@ const server = (process.env.TLS_KEY && process.env.TLS_CERT)
     ? https.createServer({ key: fs.readFileSync(process.env.TLS_KEY), cert: fs.readFileSync(process.env.TLS_CERT) }, handler)
     : http.createServer(handler);
 server.listen(PORT, () => {
-    console.log('🌌 3D Not Evreni → ' + (process.env.TLS_KEY ? 'https' : 'http') + '://localhost:' + PORT);
-    console.log('   Güvenlik: auth+CSRF+rate-limit aktif · Secure çerez: ' + (SECURE ? 'AÇIK' : 'kapalı — üretimde COOKIE_SECURE=1'));
+    console.log('🌌 3D Quantum Note Universe → ' + (process.env.TLS_KEY ? 'https' : 'http') + '://localhost:' + PORT);
+    console.log('   Security: auth+CSRF+rate-limit active · Secure cookie: ' + (SECURE ? 'ON' : 'off — set COOKIE_SECURE=1 in production'));
 });

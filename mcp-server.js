@@ -42,11 +42,11 @@ async function authCall(path) {
 }
 async function ensureAuth() {
     if (csrf) return;
-    if (!USER || !PASS) throw new Error('NOTE_USER ve NOTE_PASS ortam değişkenlerini ayarla (sunucu: ' + BASE + ')');
+    if (!USER || !PASS) throw new Error('set the NOTE_USER and NOTE_PASS environment variables (server: ' + BASE + ')');
     try { await authCall('login'); }
     catch (e) {
         if (e.status === 401 && AUTO_REGISTER) await authCall('register');
-        else throw new Error('giriş başarısız: ' + e.message + (e.status === 401 ? ' (yeni hesap için NOTE_REGISTER=1)' : ''));
+        else throw new Error('login failed: ' + e.message + (e.status === 401 ? ' (set NOTE_REGISTER=1 to auto-create the account)' : ''));
     }
 }
 async function api(path, opts = {}) {
@@ -54,7 +54,7 @@ async function api(path, opts = {}) {
     const headers = { 'Content-Type': 'application/json', 'Cookie': cookie };
     if (opts.method && opts.method !== 'GET') headers['X-CSRF'] = csrf;
     const res = await fetch(BASE + '/api/' + path, Object.assign({}, opts, { headers }));
-    if (res.status === 401) { csrf = cookie = null; throw new Error('oturum düştü — tekrar dene'); }
+    if (res.status === 401) { csrf = cookie = null; throw new Error('session expired — try again'); }
     const j = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(j.error || 'api ' + res.status);
     return j;
@@ -82,8 +82,8 @@ function cleanHtml(h) {
         .replace(new RegExp('<(\\/?)(' + ALLOWED + ')\\b[^>]*>', 'gi'), '<$1$2>');
 }
 function outline(n, addr = '0', depth = 0, maxDepth = 4, lines = []) {
-    lines.push('  '.repeat(depth) + addr + '  ' + (n.label || 'isimsiz') +
-        ((n.children || []).length ? '  [' + n.children.length + ' alt]' : ''));
+    lines.push('  '.repeat(depth) + addr + '  ' + (n.label || 'untitled') +
+        ((n.children || []).length ? '  [' + n.children.length + ' children]' : ''));
     if (depth < maxDepth)
         for (const c of (n.children || [])) outline(c, addr + '.' + c.slot, depth + 1, maxDepth, lines);
     else if ((n.children || []).length) lines.push('  '.repeat(depth + 1) + '… +' + n.children.length);
@@ -91,13 +91,13 @@ function outline(n, addr = '0', depth = 0, maxDepth = 4, lines = []) {
 }
 function newNode(label, slot, html) {
     return { id: 'n' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
-             label: label || 'isimsiz', type: 'micro_habit', size: 1, slot,
+             label: label || 'untitled', type: 'micro_habit', size: 1, slot,
              html: cleanHtml(html), images: [], docs: [], links: [], children: [] };
 }
 function firstFreeSlot(n) {
     const used = new Set((n.children || []).map(c => c.slot));
     let s = 1; while (used.has(s) && s <= SLOT_COUNT) s++;
-    if (s > SLOT_COUNT) throw new Error('tüm yuvalar dolu (54/54)');
+    if (s > SLOT_COUNT) throw new Error('all slots full (54/54)');
     return s;
 }
 async function getNb(id) { return api('notebooks/' + encodeURIComponent(id)); }
@@ -106,10 +106,10 @@ async function putRoot(id, root) { return api('notebooks/' + encodeURIComponent(
 /* ---------------------------------------- paylaşım erişimi (herkese açık) */
 async function getShare(ref) {
     const m = /[?&]s=([a-f0-9]+)/.exec(String(ref)) || /^([a-f0-9]{8,})$/.exec(String(ref).trim());
-    if (!m) throw new Error('geçersiz paylaşım referansı — id ya da ?s=... URL ver');
+    if (!m) throw new Error('invalid share reference — pass an id or a ?s=... URL');
     const res = await fetch(BASE + '/api/share/' + m[1]); // link = yetki, oturum gerekmez
     const j = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(j.error || 'paylaşım ' + res.status);
+    if (!res.ok) throw new Error(j.error || 'share ' + res.status);
     return j;
 }
 
@@ -233,18 +233,18 @@ async function shareIndex(ref) {
             const j = idOf.get(String(id).includes(':') ? String(id).split(':').pop() : id);
             if (j != null && j > i) { edges.push([i, j]); worm.add(i + ':' + j); worm.add(j + ':' + i); }
         }
-    if (addrs.length > 20000) throw new Error('paylaşım çok büyük (' + addrs.length + ' düğüm)');
+    if (addrs.length > 20000) throw new Error('share too large (' + addrs.length + ' nodes)');
     const entry = { share, addrs, meta, worm, ch: buildCH(addrs.length, edges) };
     shareCache.set(share.id, entry);
     return entry;
 }
 function fmtRoute(path, meta, addrs, worm) {
     const hops = path.length - 1;
-    let worms = 0, s = addrs[path[0]] + ' (' + (meta[path[0]].label || 'isimsiz') + ')';
+    let worms = 0, s = addrs[path[0]] + ' (' + (meta[path[0]].label || 'untitled') + ')';
     for (let i = 1; i < path.length; i++) {
         const isWorm = worm.has(path[i - 1] + ':' + path[i]);
         if (isWorm) worms++;
-        s += (isWorm ? ' 🕳→ ' : ' → ') + addrs[path[i]] + ' (' + (meta[path[i]].label || 'isimsiz') + ')';
+        s += (isWorm ? ' 🕳→ ' : ' → ') + addrs[path[i]] + ' (' + (meta[path[i]].label || 'untitled') + ')';
     }
     return { hops, wormholes: worms, route: s };
 }
@@ -253,36 +253,36 @@ function fmtRoute(path, meta, addrs, worm) {
 const TOOLS = [
     {
         name: 'list_notebooks',
-        description: 'Kullanıcının not defterlerini listeler (id, ad, son güncelleme).',
+        description: 'Lists the user\'s notebooks (id, name, last update).',
         inputSchema: { type: 'object', properties: {}, required: [] },
         run: async () => api('notebooks')
     },
     {
         name: 'get_outline',
-        description: 'Bir defterin (veya alt ağacın) yapısını adresli metin taslağı olarak döndürür. Adresler "0.12.3" biçimindedir ve diğer araçlarda kullanılır.',
+        description: 'Returns the structure of a notebook (or subtree) as an addressed text outline. Addresses look like "0.12.3" and are used by the other tools.',
         inputSchema: { type: 'object', properties: {
-            notebook_id: { type: 'string', description: 'list_notebooks çıktısındaki id' },
-            address: { type: 'string', description: 'Başlangıç düğümü adresi (varsayılan "0" = kök)' },
-            depth: { type: 'number', description: 'Gösterilecek derinlik (varsayılan 4)' }
+            notebook_id: { type: 'string', description: 'id from list_notebooks output' },
+            address: { type: 'string', description: 'Starting node address (default "0" = root)' },
+            depth: { type: 'number', description: 'Depth to show (default 4)' }
         }, required: ['notebook_id'] },
         run: async a => {
             const nb = await getNb(a.notebook_id);
             const n = nodeAt(nb.root, a.address || '0');
-            if (!n) throw new Error('adres bulunamadı: ' + a.address);
+            if (!n) throw new Error('address not found: ' + a.address);
             return nb.name + '\n' + outline(n, a.address || '0', 0, a.depth != null ? a.depth : 4).join('\n');
         }
     },
     {
         name: 'read_note',
-        description: 'Adresteki notun başlığını, gövde metnini, eklerini ve alt notlarını döndürür.',
+        description: 'Returns the title, body text, attachments and children of the note at an address.',
         inputSchema: { type: 'object', properties: {
             notebook_id: { type: 'string' },
-            address: { type: 'string', description: 'Not adresi, örn. "0.12"' }
+            address: { type: 'string', description: 'Note address, e.g. "0.12"' }
         }, required: ['notebook_id', 'address'] },
         run: async a => {
             const nb = await getNb(a.notebook_id);
             const n = nodeAt(nb.root, a.address);
-            if (!n) throw new Error('adres bulunamadı: ' + a.address);
+            if (!n) throw new Error('address not found: ' + a.address);
             /* bağlantılar: aynı defterdekiler adres/başlıkla çözülür,
                defterler arası olanlar "defterId:düğümId" olarak listelenir */
             const byId = new Map();
@@ -302,12 +302,12 @@ const TOOLS = [
     },
     {
         name: 'add_note',
-        description: 'Verilen ebeveyn adresinin altına yeni not ekler. Yuva (slot 1-54) verilmezse ilk boş yuva kullanılır. Yeni notun adresini döndürür.',
+        description: 'Adds a new note under the given parent address. If slot (1-54) is omitted, the first free slot is used. Returns the new note\'s address.',
         inputSchema: { type: 'object', properties: {
             notebook_id: { type: 'string' },
-            parent_address: { type: 'string', description: 'Ebeveyn not adresi, kök için "0"' },
+            parent_address: { type: 'string', description: 'Parent note address, "0" for root' },
             title: { type: 'string' },
-            html: { type: 'string', description: 'İsteğe bağlı gövde (izinli etiketler: h1,h2,p,b,i,ul,li…)' },
+            html: { type: 'string', description: 'Optional body (allowed tags: h1,h2,p,b,i,ul,li…)' },
             slot: { type: 'number', description: 'İsteğe bağlı yuva numarası 1-54' }
         }, required: ['notebook_id', 'parent_address', 'title'] },
         run: async a => {
@@ -317,8 +317,8 @@ const TOOLS = [
             p.children = p.children || [];
             let slot = a.slot;
             if (slot != null) {
-                if (!(slot >= 1 && slot <= SLOT_COUNT)) throw new Error('slot 1-' + SLOT_COUNT + ' arasında olmalı');
-                if (p.children.some(c => c.slot === slot)) throw new Error('yuva dolu: ' + slot);
+                if (!(slot >= 1 && slot <= SLOT_COUNT)) throw new Error('slot must be between 1 and ' + SLOT_COUNT);
+                if (p.children.some(c => c.slot === slot)) throw new Error('slot occupied: ' + slot);
             } else slot = firstFreeSlot(p);
             p.children.push(newNode(a.title, slot, a.html));
             await putRoot(a.notebook_id, nb.root);
@@ -327,7 +327,7 @@ const TOOLS = [
     },
     {
         name: 'update_note',
-        description: 'Adresteki notun başlığını ve/veya gövdesini günceller.',
+        description: 'Updates the title and/or body of the note at an address.',
         inputSchema: { type: 'object', properties: {
             notebook_id: { type: 'string' },
             address: { type: 'string' },
@@ -337,7 +337,7 @@ const TOOLS = [
         run: async a => {
             const nb = await getNb(a.notebook_id);
             const n = nodeAt(nb.root, a.address);
-            if (!n) throw new Error('adres bulunamadı: ' + a.address);
+            if (!n) throw new Error('address not found: ' + a.address);
             if (a.title != null) n.label = String(a.title).slice(0, 200);
             if (a.html != null) n.html = cleanHtml(a.html);
             await putRoot(a.notebook_id, nb.root);
@@ -346,18 +346,18 @@ const TOOLS = [
     },
     {
         name: 'delete_note',
-        description: 'Adresteki notu (alt ağacıyla birlikte) siler. Kök ("0") silinemez.',
+        description: 'Deletes the note at an address (with its subtree). Root ("0") cannot be deleted.',
         inputSchema: { type: 'object', properties: {
             notebook_id: { type: 'string' },
             address: { type: 'string' }
         }, required: ['notebook_id', 'address'] },
         run: async a => {
             const pa = parentAddr(a.address);
-            if (!pa) throw new Error('kök silinemez');
+            if (!pa) throw new Error('root cannot be deleted');
             const nb = await getNb(a.notebook_id);
             const p = nodeAt(nb.root, pa);
             const slot = +String(a.address).split('.').pop();
-            if (!p || !(p.children || []).some(c => c.slot === slot)) throw new Error('adres bulunamadı: ' + a.address);
+            if (!p || !(p.children || []).some(c => c.slot === slot)) throw new Error('address not found: ' + a.address);
             p.children = p.children.filter(c => c.slot !== slot);
             await putRoot(a.notebook_id, nb.root);
             return { ok: true, deleted: a.address };
@@ -365,7 +365,7 @@ const TOOLS = [
     },
     {
         name: 'search_notes',
-        description: 'Defterde başlık ve gövde metninde arama yapar; eşleşen notların adreslerini döndürür.',
+        description: 'Searches titles and body text in a notebook; returns matching notes\' addresses.',
         inputSchema: { type: 'object', properties: {
             notebook_id: { type: 'string' },
             query: { type: 'string' }
@@ -383,30 +383,30 @@ const TOOLS = [
                 }
                 if (out.length < 40) for (const c of (n.children || [])) walk(c, addr + '.' + c.slot);
             })(nb.root, '0');
-            return out.length ? out : 'sonuç yok: "' + a.query + '"';
+            return out.length ? out : 'no results: "' + a.query + '"';
         }
     },
     {
         name: 'create_notebook',
-        description: 'Yeni boş not defteri oluşturur.',
+        description: 'Creates a new empty notebook.',
         inputSchema: { type: 'object', properties: {
             name: { type: 'string' }
         }, required: ['name'] },
         run: async a => {
             const r = await api('notebooks', { method: 'POST', body: JSON.stringify({
-                name: a.name, root: { id: 'root', label: 'Ana Merkez', type: 'macro_goal', size: 5,
+                name: a.name, root: { id: 'root', label: 'Main Hub', type: 'macro_goal', size: 5,
                                       slot: null, html: '', images: [], docs: [], links: [], children: [] } }) });
             return { ok: true, id: r.id, name: r.name };
         }
     },
     {
         name: 'link_notes',
-        description: 'İki notu çift yönlü solucan deliğiyle bağlar — Obsidian tarzı bağlantı. target_notebook_id verilirse FARKLI defterlerdeki notlar bağlanır (defterler arası köprü): böylece defterler çok boyutlu bir sinir ağına/beyne dönüşür. İlişkili kavramları (örn. "Calculus" ↔ "Fizik/Hareket") bağlamak bilgi grafını güçlendirir.',
+        description: 'Links two notes with a bidirectional wormhole — Obsidian-style. With target_notebook_id, notes in DIFFERENT notebooks are linked (cross-notebook bridge), turning notebooks into one multi-dimensional neural network/brain. Linking related concepts (e.g. "Calculus" ↔ "Physics/Motion") strengthens the knowledge graph.',
         inputSchema: { type: 'object', properties: {
             notebook_id: { type: 'string' },
-            address: { type: 'string', description: 'Kaynak not adresi' },
-            target_address: { type: 'string', description: 'Hedef not adresi' },
-            target_notebook_id: { type: 'string', description: 'Hedef farklı defterdeyse onun id\'si' }
+            address: { type: 'string', description: 'Source note address' },
+            target_address: { type: 'string', description: 'Target note address' },
+            target_notebook_id: { type: 'string', description: 'Target notebook id if the target lives in another notebook' }
         }, required: ['notebook_id', 'address', 'target_address'] },
         run: async a => {
             const tid = a.target_notebook_id || a.notebook_id;
@@ -414,10 +414,10 @@ const TOOLS = [
             const nbA = await getNb(a.notebook_id);
             const nbB = same ? nbA : await getNb(tid);
             const A = nodeAt(nbA.root, a.address), B = nodeAt(nbB.root, a.target_address);
-            if (!A) throw new Error('kaynak adres bulunamadı: ' + a.address);
-            if (!B) throw new Error('hedef adres bulunamadı: ' + a.target_address);
-            if (A === B) throw new Error('not kendisine bağlanamaz');
-            if (!A.id || !B.id) throw new Error('düğüm id\'leri eksik');
+            if (!A) throw new Error('source address not found: ' + a.address);
+            if (!B) throw new Error('target address not found: ' + a.target_address);
+            if (A === B) throw new Error('a note cannot link to itself');
+            if (!A.id || !B.id) throw new Error('node ids are missing');
             A.links = A.links || []; B.links = B.links || [];
             const refB = same ? B.id : tid + ':' + B.id;
             const refA = same ? A.id : a.notebook_id + ':' + A.id;
@@ -431,23 +431,23 @@ const TOOLS = [
     },
     {
         name: 'file_note',
-        description: 'Konuşmaları, kod çözümlerini ve öğrenilen bilgileri HİYERARŞİK KATEGORİYE dosyalar — dil modelleri için birincil kayıt aracı. category_path "/" ile ayrılmış kategori zinciridir (örn. "Dersler/Matematik/Calculus/Calculus1 Notları" veya "Kodlama/Python/Web Scraping"); eksik kategori düğümleri otomatik oluşturulur, var olanlar yeniden kullanılır. Defter verilmezse "Claude Evreni" defteri kullanılır (yoksa yaratılır). Yeni notun adresini döndürür.',
+        description: 'Files conversations, code solutions and learned facts into a HIERARCHICAL CATEGORY — the primary recording tool for language models. category_path is a "/"-separated chain (e.g. "Courses/Math/Calculus/Calculus1 Notes" or "Coding/Python/Web Scraping"); missing category nodes are created automatically, existing ones are reused. Without a notebook, the "Claude Universe" notebook is used (created if absent). Returns the new note\'s address.',
         inputSchema: { type: 'object', properties: {
-            category_path: { type: 'string', description: 'Kategori zinciri, "/" ayraçlı — örn. "Dersler/Matematik/Calculus/Calculus1 Notları"' },
-            title: { type: 'string', description: 'Not başlığı' },
-            html: { type: 'string', description: 'İsteğe bağlı gövde (izinli etiketler: h1,h2,p,b,i,ul,li…)' },
-            notebook: { type: 'string', description: 'Defter adı (varsayılan "Claude Evreni"; yoksa oluşturulur)' }
+            category_path: { type: 'string', description: 'Category chain, "/"-separated — e.g. "Courses/Math/Calculus/Calculus1 Notes"' },
+            title: { type: 'string', description: 'Note title' },
+            html: { type: 'string', description: 'Optional body (allowed tags: h1,h2,p,b,i,ul,li…)' },
+            notebook: { type: 'string', description: 'Notebook name (default "Claude Universe"; created if absent)' }
         }, required: ['category_path', 'title'] },
         run: async a => {
-            const name = (a.notebook || 'Claude Evreni').trim();
+            const name = (a.notebook || 'Claude Universe').trim();
             const list = await api('notebooks');
             let nbMeta = list.find(x => (x.name || '').trim().toLowerCase() === name.toLowerCase());
             if (!nbMeta) nbMeta = await api('notebooks', { method: 'POST', body: JSON.stringify({
-                name, root: { id: 'root', label: 'Ana Merkez', type: 'macro_goal', size: 5,
+                name, root: { id: 'root', label: 'Main Hub', type: 'macro_goal', size: 5,
                               slot: null, html: '', images: [], docs: [], links: [], children: [] } }) });
             const nb = await getNb(nbMeta.id);
             const segs = String(a.category_path || '').split('/').map(s => s.trim()).filter(Boolean);
-            if (!segs.length) throw new Error('category_path boş — örn. "Dersler/Matematik"');
+            if (!segs.length) throw new Error('category_path is empty — e.g. "Courses/Math"');
             let node = nb.root, addr = '0';
             for (const seg of segs) { // kategori zinciri: bul ya da oluştur
                 node.children = node.children || [];
@@ -465,31 +465,31 @@ const TOOLS = [
     },
     {
         name: 'read_share',
-        description: 'Herkese açık bir paylaşım linkindeki (?s=... URL ya da paylaşım id) haritayı okur: ad, odak ve adresli taslak. Oturum gerektirmez — başkasının paylaştığı haritalar da okunabilir.',
+        description: 'Reads the map behind a public share link (?s=... URL or share id): name, focus and addressed outline. No login needed — maps shared by others are readable too.',
         inputSchema: { type: 'object', properties: {
-            share: { type: 'string', description: 'Paylaşım URL\'i ya da id\'si' },
-            depth: { type: 'number', description: 'Taslak derinliği (varsayılan 4)' }
+            share: { type: 'string', description: 'Share URL or id' },
+            depth: { type: 'number', description: 'Outline depth (default 4)' }
         }, required: ['share'] },
         run: async a => {
             const s = await getShare(a.share);
-            return s.name + ' (odak: ' + (s.focus || '0') + ')\n' +
+            return s.name + ' (focus: ' + (s.focus || '0') + ')\n' +
                 outline(s.root, '0', 0, a.depth != null ? a.depth : 4).join('\n');
         }
     },
     {
         name: 'search_share',
-        description: 'Paylaşılan haritada metin arar ve her sonuç için başlangıç noktasından hedefe EN KISA ROTAYI Contraction Hierarchies ile hesaplar (ağaç bağları + solucan delikleri üzerinde, kısayol ön işlemli iki yönlü Dijkstra). Rota "🕳→" işaretli adımlarda solucan deliğinden geçer. Oturum gerektirmez.',
+        description: 'Searches a shared map and, for every hit, computes the SHORTEST ROUTE from the start to the target with Contraction Hierarchies (bidirectional Dijkstra with shortcut preprocessing over tree bonds + wormholes). Steps marked "🕳→" pass through a wormhole. No login needed.',
         inputSchema: { type: 'object', properties: {
-            share: { type: 'string', description: 'Paylaşım URL\'i ya da id\'si' },
-            query: { type: 'string', description: 'Aranacak metin (başlık + gövde)' },
-            from_address: { type: 'string', description: 'Rota başlangıcı (varsayılan: paylaşımın odağı)' }
+            share: { type: 'string', description: 'Share URL or id' },
+            query: { type: 'string', description: 'Text to search (title + body)' },
+            from_address: { type: 'string', description: 'Route start (default: the share\'s focus)' }
         }, required: ['share', 'query'] },
         run: async a => {
             const { share, addrs, meta, worm, ch } = await shareIndex(a.share);
             const q = String(a.query).toLowerCase();
             const fromAddr = a.from_address || share.focus || '0';
             const src = addrs.indexOf(fromAddr);
-            if (src < 0) throw new Error('başlangıç adresi paylaşımda yok: ' + fromAddr);
+            if (src < 0) throw new Error('start address not in the share: ' + fromAddr);
             const hits = [];
             for (let i = 0; i < meta.length && hits.length < 15; i++) {
                 const body = stripTags(meta[i].html).toLowerCase();
@@ -500,22 +500,22 @@ const TOOLS = [
                 hits.push(Object.assign(
                     { address: addrs[i], title: meta[i].label,
                       snippet: bi >= 0 ? '…' + stripTags(meta[i].html).slice(Math.max(0, bi - 14), bi + q.length + 26) + '…' : '' },
-                    path ? fmtRoute(path, meta, addrs, worm) : { route: 'rota yok' }));
+                    path ? fmtRoute(path, meta, addrs, worm) : { route: 'no route' }));
             }
-            return hits.length ? hits : 'sonuç yok: "' + a.query + '"';
+            return hits.length ? hits : 'no results: "' + a.query + '"';
         }
     },
     {
         name: 'create_share_link',
-        description: 'Adresteki alt ağaç için herkese açık paylaşım linki üretir.',
+        description: 'Creates a public share link for the subtree at an address.',
         inputSchema: { type: 'object', properties: {
             notebook_id: { type: 'string' },
-            address: { type: 'string', description: 'Paylaşılacak alt ağacın adresi (varsayılan "0")' }
+            address: { type: 'string', description: 'Address of the subtree to share (default "0")' }
         }, required: ['notebook_id'] },
         run: async a => {
             const nb = await getNb(a.notebook_id);
             const n = nodeAt(nb.root, a.address || '0');
-            if (!n) throw new Error('adres bulunamadı: ' + a.address);
+            if (!n) throw new Error('address not found: ' + a.address);
             const r = await api('share', { method: 'POST', body: JSON.stringify({ name: n.label || nb.name, root: n, focus: '0' }) });
             return { ok: true, url: BASE + r.url };
         }
@@ -533,30 +533,30 @@ async function handle(line) {
                 protocolVersion: (params && params.protocolVersion) || '2024-11-05',
                 capabilities: { tools: {} },
                 serverInfo: { name: 'not-evreni', version: '1.1.0' },
-                instructions: 'Bu sunucu kullanıcının 3D Kuantum Not Evreni\'ne bağlanır. ' +
-                    'Kayda değer her konuşmayı, kod çözümünü ve öğrenilen bilgiyi file_note ile ' +
-                    'HİYERARŞİK kategoriye dosyala — örn. "Dersler/Matematik/Calculus/Calculus1 Notları", ' +
-                    '"Kodlama/Python/Web Scraping". Önce get_outline ile mevcut kategorileri keşfet ve ' +
-                    'aynı anlama gelen kategori zaten varsa ONU kullan; gereksiz kategori çoğaltma. ' +
-                    'İlişkili kavramları link_notes ile bağla (Obsidian tarzı; target_notebook_id ile ' +
-                    'defterler arası da olur) — böylece notlar çok boyutlu bir sinir ağına dönüşür. ' +
-                    'Kullanıcı evreni elle de düzenler — var olan yapıya saygı göster. ' +
-                    'Paylaşılan haritalarda (?s=... linki) read_share ile gezin, search_share ile ara; ' +
-                    'rotalar Contraction Hierarchies ile hesaplanır ve 🕳→ adımları solucan deliğidir.' } });
+                instructions: 'This server connects to the user\'s 3D Quantum Note Universe. ' +
+                    'File every noteworthy conversation, code solution and learned fact with file_note ' +
+                    'into a HIERARCHICAL category — e.g. "Courses/Math/Calculus/Calculus1 Notes", ' +
+                    '"Coding/Python/Web Scraping". First explore existing categories with get_outline and ' +
+                    'REUSE a category that means the same thing; do not duplicate categories. ' +
+                    'Link related concepts with link_notes (Obsidian-style; cross-notebook with ' +
+                    'target_notebook_id) — notes then weave into a multi-dimensional neural network. ' +
+                    'The user also edits the universe by hand — respect the existing structure. ' +
+                    'Browse shared maps (?s=... links) with read_share and search them with search_share; ' +
+                    'routes are computed with Contraction Hierarchies and 🕳→ steps are wormholes.' } });
         if (method && method.startsWith('notifications/')) return;
         if (method === 'ping') return send({ jsonrpc: '2.0', id, result: {} });
         if (method === 'tools/list')
             return send({ jsonrpc: '2.0', id, result: { tools: TOOLS.map(({ name, description, inputSchema }) => ({ name, description, inputSchema })) } });
         if (method === 'tools/call') {
             const t = TOOLS.find(x => x.name === params.name);
-            if (!t) throw new Error('bilinmeyen araç: ' + params.name);
+            if (!t) throw new Error('unknown tool: ' + params.name);
             const out = await t.run(params.arguments || {});
             return send({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: typeof out === 'string' ? out : JSON.stringify(out, null, 1) }] } });
         }
-        if (id != null) send({ jsonrpc: '2.0', id, error: { code: -32601, message: 'yöntem yok: ' + method } });
+        if (id != null) send({ jsonrpc: '2.0', id, error: { code: -32601, message: 'no such method: ' + method } });
     } catch (e) {
         if (method === 'tools/call')
-            send({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: 'HATA: ' + e.message }], isError: true } });
+            send({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: 'ERROR: ' + e.message }], isError: true } });
         else if (id != null)
             send({ jsonrpc: '2.0', id, error: { code: -32000, message: e.message } });
     }
