@@ -137,6 +137,68 @@ function fmtPair(p) {
     };
 }
 
+/* ===================== QUANTUM GAUSSIAN PROCESS REGRESSION (QGPR) ==========
+   Piyasa verisi gecikmeli gelebilir; kısa ufukta (10-60 sn) fiyat tahmini
+   için GPR, KUANTUM ÇEKİRDEKLE çalışır: 4 kübitlik açı-kodlamalı
+   çarpım-durum özellik haritasının sadakat çekirdeği
+       k(x,x') = |⟨φ(x)|φ(x')⟩|² = ∏_j cos²(ω_j (x−x') / 2)
+   (çarpım-durum için kapalı form — klasik olarak KESİN simüle edilir).
+   GPR: K α = y Cholesky ile çözülür; μ* ve σ*² kapalı formda.
+   Ufuk sınırı katıdır: 10 sn altı ve 60 sn üstü tahmine İZİN VERİLMEZ.  */
+const QGPR_MIN_H = 10, QGPR_MAX_H = 60;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+function qKernel(dx, omegas) {
+    let k = 1;
+    for (const w of omegas) { const c = Math.cos(w * dx / 2); k *= c * c; }
+    return k;
+}
+function cholesky(A) { // simetrik pozitif tanımlı n×n
+    const n = A.length, L = Array.from({ length: n }, () => new Array(n).fill(0));
+    for (let i = 0; i < n; i++) for (let j = 0; j <= i; j++) {
+        let s = A[i][j];
+        for (let k = 0; k < j; k++) s -= L[i][k] * L[j][k];
+        if (i === j) L[i][j] = Math.sqrt(Math.max(s, 1e-12));
+        else L[i][j] = s / L[j][j];
+    }
+    return L;
+}
+function cholSolve(L, b) { // L Lᵀ x = b
+    const n = L.length, y = new Array(n), x = new Array(n);
+    for (let i = 0; i < n; i++) { let s = b[i]; for (let k = 0; k < i; k++) s -= L[i][k] * y[k]; y[i] = s / L[i][i]; }
+    for (let i = n - 1; i >= 0; i--) { let s = y[i]; for (let k = i + 1; k < n; k++) s -= L[k][i] * x[k]; x[i] = s / L[i][i]; }
+    return x;
+}
+function qgprPredict(ts, ys, tStar) { // ts: sn, ys: fiyat → {price, sigma}
+    const n = ts.length;
+    const mean = ys.reduce((a, b) => a + b, 0) / n;
+    const yc = ys.map(v => v - mean);
+    const sd = Math.sqrt(yc.reduce((a, b) => a + b * b, 0) / n) || 1e-9;
+    const yn = yc.map(v => v / sd);
+    const span = Math.max(ts[n - 1] - ts[0], 1);
+    /* frekanslar gözlem penceresine ölçekli: ω_j = j·π/(2·span) —
+       en düşüğü pencereye yarım periyot sığdırır, üsttekiler detay taşır */
+    const omegas = [1, 2, 3, 4].map(j => j * Math.PI / (2 * span));
+    const noise = 0.05;
+    const K = Array.from({ length: n }, (_, i) =>
+        Array.from({ length: n }, (_, j) => qKernel(ts[i] - ts[j], omegas) + (i === j ? noise : 0)));
+    const L = cholesky(K);
+    const alpha = cholSolve(L, yn);
+    const ks = ts.map(t => qKernel(tStar - t, omegas));
+    const mu = ks.reduce((a, b, i) => a + b * alpha[i], 0);
+    const v = cholSolve(L, ks);
+    const varStar = Math.max(qKernel(0, omegas) + noise - ks.reduce((a, b, i) => a + b * v[i], 0), 0);
+    return { price: mean + mu * sd, sigma: Math.sqrt(varStar) * sd };
+}
+/* çift başına fiyat geçmişi (get_market da besler) — 3 dk pencere */
+const priceHist = new Map(); // 'chain/pairAddress' → [{t, p}]
+function pushHist(key, price) {
+    if (price == null) return;
+    const h = priceHist.get(key) || [];
+    if (!h.length || h[h.length - 1].p !== price || Date.now() - h[h.length - 1].t > 900) h.push({ t: Date.now(), p: price });
+    while (h.length > 60 || (h.length && Date.now() - h[0].t > 180000)) h.shift();
+    priceHist.set(key, h);
+}
+
 /* strateji ağacı → "iç içe fonksiyon" görünümü: her düğüm bir fonksiyon,
    gövdesi koşul/eylem satırları, çocukları alt fonksiyonlardır */
 function strategyView(n, addr, depth, lines) {
@@ -528,6 +590,7 @@ const TOOLS = [
                 const j = await dexFetch('/latest/dex/pairs/' + encodeURIComponent(chain) + '/' + encodeURIComponent(addr));
                 const list = (j.pairs || (j.pair ? [j.pair] : [])).map(fmtPair);
                 if (!list.length) throw new Error('pair not found: ' + a.pair);
+                list.forEach(p => pushHist(p.chain + '/' + p.pairAddress, p.priceUsd));
                 return { asOf: new Date().toISOString(), pairs: list };
             }
             if (!a.query) throw new Error('pass query or pair');
@@ -535,8 +598,73 @@ const TOOLS = [
             const list = (j.pairs || [])
                 .sort((x, y) => ((y.liquidity && y.liquidity.usd) || 0) - ((x.liquidity && x.liquidity.usd) || 0))
                 .slice(0, a.limit || 5).map(fmtPair);
+            list.forEach(p => pushHist(p.chain + '/' + p.pairAddress, p.priceUsd));
             return list.length ? { asOf: new Date().toISOString(), pairs: list }
                                : 'no pairs found for "' + a.query + '"';
+        }
+    },
+    {
+        name: 'predict_market',
+        description: 'Predicts a pair\'s price 10-60 seconds ahead with QUANTUM GAUSSIAN PROCESS REGRESSION (QGPR) — market feeds can lag, so this bridges the gap. It samples the live price several times (~1.5s apart, reusing recent history), then runs GPR with a fidelity quantum kernel (4-qubit angle-encoding product feature map, simulated exactly) and returns the predicted price with a 95% confidence interval. horizon_seconds is USER-SET and STRICTLY bounded to 10-60: values outside are rejected. The call takes ~10-15s while sampling. Prediction ≠ certainty — always report the confidence interval.',
+        inputSchema: { type: 'object', properties: {
+            query: { type: 'string', description: 'Symbol/pair to resolve, e.g. "SOL/USDC" (top pair by liquidity is used)' },
+            pair: { type: 'string', description: 'Exact "chainId/pairAddress" (skips search)' },
+            horizon_seconds: { type: 'number', description: 'Prediction horizon in seconds — allowed range 10-60 (default 30)' },
+            samples: { type: 'number', description: 'Fresh price samples to collect, 4-16 (default 8; more = better fit, slower)' }
+        }, required: [] },
+        run: async a => {
+            const h = a.horizon_seconds == null ? 30 : +a.horizon_seconds;
+            if (!Number.isFinite(h) || h < QGPR_MIN_H || h > QGPR_MAX_H)
+                throw new Error('horizon_seconds must be between ' + QGPR_MIN_H + ' and ' + QGPR_MAX_H +
+                                ' seconds — got ' + a.horizon_seconds + '. Predictions outside this range are not allowed.');
+            const want = Math.min(Math.max(+a.samples || 8, 4), 16);
+            /* çifti çöz */
+            let key, pairInfo;
+            if (a.pair) key = String(a.pair);
+            else if (a.query) {
+                const j = await dexFetch('/latest/dex/search?q=' + encodeURIComponent(a.query));
+                const best = (j.pairs || []).sort((x, y) => ((y.liquidity && y.liquidity.usd) || 0) - ((x.liquidity && x.liquidity.usd) || 0))[0];
+                if (!best) throw new Error('no pairs found for "' + a.query + '"');
+                pairInfo = fmtPair(best);
+                key = pairInfo.chain + '/' + pairInfo.pairAddress;
+                pushHist(key, pairInfo.priceUsd);
+            } else throw new Error('pass query or pair');
+            const [chain, addr] = key.split('/');
+            /* örnekle: taze geçmişi (≤120 sn) yeniden kullan, eksikse tamamla */
+            const fresh = () => (priceHist.get(key) || []).filter(x => Date.now() - x.t < 120000);
+            let guard = 0;
+            while (fresh().length < want && guard++ < want + 6) {
+                const j = await dexFetch('/latest/dex/pairs/' + encodeURIComponent(chain) + '/' + encodeURIComponent(addr));
+                const p = (j.pairs || (j.pair ? [j.pair] : []))[0];
+                if (!p) throw new Error('pair not found: ' + key);
+                pairInfo = fmtPair(p);
+                pushHist(key, pairInfo.priceUsd);
+                if (fresh().length < want) await sleep(1500);
+            }
+            const hist = fresh();
+            if (hist.length < 4) throw new Error('not enough price samples (' + hist.length + ') — feed may be stale');
+            const t0 = hist[0].t;
+            const ts = hist.map(x => (x.t - t0) / 1000), ys = hist.map(x => x.p);
+            const last = ys[ys.length - 1], lastT = ts[ts.length - 1];
+            const { price, sigma } = qgprPredict(ts, ys, lastT + h);
+            const windowS = +(lastT - ts[0]).toFixed(1);
+            const flat = ys.every(v => v === ys[0]);
+            return {
+                pair: pairInfo ? pairInfo.pair : key, key,
+                asOf: new Date().toISOString(),
+                samples: hist.length, windowSeconds: windowS,
+                lastPrice: last,
+                horizonSeconds: h,
+                predictedPrice: +price.toFixed(8),
+                ci95: [+(price - 1.96 * sigma).toFixed(8), +(price + 1.96 * sigma).toFixed(8)],
+                predictedChangePct: +((price - last) / last * 100).toFixed(4),
+                sigma: +sigma.toFixed(8),
+                method: 'QGPR — fidelity quantum kernel k(x,x\')=∏cos²(ω_j·Δt/2) (4-qubit angle-encoding ' +
+                        'product feature map, simulated exactly) + Cholesky GPR; frequencies scaled to the sampling window',
+                notes: (flat ? 'price did not move during the sampling window — flat forecast; ' : '') +
+                       (h > windowS * 2 ? 'horizon far exceeds the observation window: expect a wide confidence interval; ' : '') +
+                       'statistical extrapolation with uncertainty — not financial advice'
+            };
         }
     },
     {
@@ -701,7 +829,9 @@ async function handle(line) {
                     'routes are computed with Contraction Hierarchies and 🕳→ steps are wormholes. ' +
                     'TRADING WORKFLOW (note-driven, Obsidian+Claude style): the user keeps a strategy ' +
                     'notebook whose notes are nested functions — read it with read_strategy, fetch live ' +
-                    'market data with get_market, then walk the tree top-down like a call stack: descend ' +
+                    'market data with get_market (feeds can lag: bridge the gap with predict_market, a ' +
+                    'quantum-kernel GPR forecast whose horizon is user-set and hard-bounded to 10-60 ' +
+                    'seconds — always quote its confidence interval), then walk the tree top-down like a call stack: descend ' +
                     'only into branches whose written conditions match the data, and report WHICH ' +
                     'sub-function fired and what it prescribes. Record every conclusion with ' +
                     'log_trade_decision (pass fired_address so the journal entry is wormhole-linked to ' +

@@ -38,6 +38,7 @@
 | 🎨 **Dark & Light Themes** | One-click toggle (◐), system-preference default, persisted; 3D scene, 2D map and brain graph all follow |
 | 🌍 **English UI** | All in-app text is English — use Google Translate for any language |
 | ⚡ **Performance-First** | Idle frame limiter (60→30→15 fps), dirty-flag graph redraws, visibility-gated sync polling — GPU/CPU stay cool |
+| 🔮 **QGPR Forecasts** | Quantum Gaussian Process Regression bridges laggy feeds: fidelity quantum kernel + GPR predicts price 10-60 s ahead (hard-bounded) with a 95% CI |
 | 📈 **Note-Driven Trading** | Your strategy notebook is a program: notes = nested functions, Claude walks it against live DexScreener data and logs which branch fired — recommendations only, you execute |
 | 🛣️ **CH Route Search** | Shared maps are searchable by LLMs with real **Contraction Hierarchies** — shortest routes over tree bonds + wormholes |
 | 🧠 **Brain Network** | Obsidian-style: cross-notebook wormholes, `[[wikilinks]]`, and a force-directed **brain graph** of all notebooks as one neural network |
@@ -289,6 +290,7 @@ Working inside this repo? Claude Code auto-discovers `.mcp.json` — just export
 | `get_market` | Live market data from the public DexScreener API (price, Δ%, volume, liquidity) |
 | `read_strategy` | Strategy notebook as a nested-function view — bodies are condition/action lines |
 | `log_trade_decision` | Files a recommendation into `Trade Journal/<SYMBOL>` + wormhole to the fired node |
+| `predict_market` | **QGPR** price forecast 10-60 s ahead (strict bounds) with 95% confidence interval |
 | `read_share` | Read any public shared map (`?s=...` URL or id) — no login needed |
 | `search_share` | Search a shared map; routes computed with **Contraction Hierarchies** |
 
@@ -322,6 +324,7 @@ Claude (via MCP) then acts as the interpreter, Obsidian + Claude style:
 
 1. `read_strategy` — loads the tree in the nested-function view above.
 2. `get_market("SOL/USDC")` — pulls live price / Δ% / volume / liquidity / buy-sell counts from the **public DexScreener API** (read-only, no key; override with `DEX_API_BASE`).
+2b. `predict_market(query, horizon_seconds)` — market feeds can lag, so this bridges the gap with **Quantum Gaussian Process Regression**: the live price is sampled ~1.5 s apart (recent history is reused), then a GPR runs on a **fidelity quantum kernel** `k(x,x′)=∏ⱼcos²(ωⱼ·Δt/2)` — the exact closed form of a 4-qubit angle-encoding product feature map, simulated classically — solved via Cholesky, returning the predicted price **plus a 95% confidence interval**. The horizon is user-set and **strictly bounded to 10–60 seconds**: anything below 10 s or above 60 s is rejected, and forecasts far beyond the sampling window are flagged as wide-uncertainty.
 3. Claude walks the tree **top-down like a call stack**, descending only into branches whose written conditions match the data, and reports which sub-function fired and what it prescribes.
 4. `log_trade_decision` — the conclusion lands in `Trade Journal/<SYMBOL>` with route, reasoning and market snapshot, **wormhole-linked to the strategy node that fired** — so on the brain graph you literally see which parts of your strategy have been firing.
 
