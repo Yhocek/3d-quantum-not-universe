@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EduPath — Yurtdışı Eğitim Danışmanlığı</title>
+    <meta name="description" content="Yurtdışındaki üniversiteler, güncel ücretler ve uzman eğitim danışmanları tek adreste.">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎓</text></svg>">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+    <header class="site-header">
+        <div class="container header-inner">
+            <a href="#" class="logo">Edu<span>Path</span></a>
+            <nav class="main-nav">
+                <a href="#universiteler">Üniversiteler</a>
+                <a href="#nasil-calisir">Nasıl Çalışır?</a>
+                <a href="#iletisim">İletişim</a>
+            </nav>
+            <button class="btn btn-primary" data-open-consultants>Danışmanlık Al</button>
+        </div>
+    </header>
+
+    <section class="hero">
+        <div class="container">
+            <h1>Yurtdışı eğitim yolculuğun<br>burada başlıyor</h1>
+            <p>Avrupa'nın önde gelen üniversitelerini, güncel eğitim ücretlerini ve başvuru
+               koşullarını incele; uzman danışmanlarımızla ücretsiz ön görüşme planla.</p>
+            <div class="hero-actions">
+                <a href="#universiteler" class="btn btn-light">Üniversiteleri İncele</a>
+                <button class="btn btn-primary btn-lg" data-open-consultants>Danışmanlık Al</button>
+            </div>
+            <div class="hero-stats">
+                <div><strong id="stat-uni">0</strong><span>Anlaşmalı Üniversite</span></div>
+                <div><strong id="stat-country">0</strong><span>Ülke</span></div>
+                <div><strong id="stat-consultant">0</strong><span>Uzman Danışman</span></div>
+            </div>
+        </div>
+    </section>
+
+    <section id="universiteler" class="section">
+        <div class="container">
+            <div class="section-head">
+                <h2>Üniversiteler ve Ücretler</h2>
+                <p>Yıllık eğitim ücretleri, başvuru koşulları ve program bilgileri.</p>
+            </div>
+            <div class="filters">
+                <input type="search" id="uni-search" placeholder="Üniversite veya bölüm ara…" aria-label="Üniversite ara">
+                <div class="country-filters" id="country-filters"></div>
+            </div>
+            <div class="uni-grid" id="uni-grid"></div>
+            <p class="empty-msg" id="uni-empty" hidden>Aramanızla eşleşen üniversite bulunamadı.</p>
+        </div>
+    </section>
+
+    <section id="nasil-calisir" class="section section-alt">
+        <div class="container">
+            <div class="section-head">
+                <h2>Nasıl Çalışır?</h2>
+            </div>
+            <div class="steps">
+                <div class="step"><span>1</span><h3>Üniversiteni Seç</h3><p>Ülke, bölüm ve bütçene uygun üniversiteleri karşılaştır.</p></div>
+                <div class="step"><span>2</span><h3>Danışmanınla Görüş</h3><p>Alanında uzman danışmanınla ücretsiz ön görüşme yap.</p></div>
+                <div class="step"><span>3</span><h3>Başvurunu Tamamla</h3><p>Belgeler, başvuru ve vize sürecini birlikte yönetelim.</p></div>
+            </div>
+        </div>
+    </section>
+
+    <footer id="iletisim" class="site-footer">
+        <div class="container footer-inner">
+            <div>
+                <a href="#" class="logo">Edu<span>Path</span></a>
+                <p>Yurtdışı eğitimde güvenilir yol arkadaşın.</p>
+            </div>
+            <div>
+                <h4>İletişim</h4>
+                <p>info@edupath.example<br>+90 555 000 00 00</p>
+            </div>
+            <div>
+                <h4>Hızlı Erişim</h4>
+                <p><a href="#universiteler">Üniversiteler</a><br>
+                   <button class="link-btn" data-open-consultants>Danışmanlarımız</button></p>
+            </div>
+        </div>
+        <p class="copyright">© 2026 EduPath. Tüm hakları saklıdır.</p>
+    </footer>
+
+    <!-- Danışman listesi: "Danışmanlık Al" butonlarıyla açılır -->
+    <div class="modal-overlay" id="consultant-modal" hidden>
+        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+            <div class="modal-head">
+                <div>
+                    <h2 id="modal-title">Danışmanlarımız</h2>
+                    <p id="modal-subtitle">Size uygun danışmanı seçin, ücretsiz ön görüşme planlayın.</p>
+                </div>
+                <button class="modal-close" data-close-modal aria-label="Kapat">&times;</button>
+            </div>
+            <div class="consultant-list" id="consultant-list"></div>
+        </div>
+    </div>
+
+    <script src="js/data.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>

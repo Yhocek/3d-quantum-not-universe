@@ -1,0 +1,206 @@
+/* EduPath — örnek veri: üniversiteler ve danışmanlar
+   Gerçek verilerle güncellemek için yalnızca bu dosyayı düzenleyin. */
+
+const UNIVERSITIES = [
+    {
+        id: 'warsaw',
+        name: 'Varşova Üniversitesi',
+        country: 'Polonya',
+        city: 'Varşova',
+        flag: '🇵🇱',
+        ranking: 'QS #262',
+        language: 'İngilizce / Lehçe',
+        programs: ['İşletme', 'Bilgisayar Mühendisliği', 'Psikoloji', 'Uluslararası İlişkiler'],
+        tuition: '2.000 – 4.000 €/yıl',
+        applicationFee: '85 €',
+        deadline: '15 Temmuz',
+        note: 'Uygun yaşam maliyeti, geniş İngilizce program seçeneği.'
+    },
+    {
+        id: 'charles',
+        name: 'Charles Üniversitesi',
+        country: 'Çekya',
+        city: 'Prag',
+        flag: '🇨🇿',
+        ranking: 'QS #246',
+        language: 'İngilizce / Çekçe',
+        programs: ['Tıp', 'Eczacılık', 'Hukuk', 'Ekonomi'],
+        tuition: '6.000 – 14.000 €/yıl',
+        applicationFee: '25 €',
+        deadline: '28 Şubat',
+        note: 'Tıp eğitiminde Avrupa\'nın en köklü üniversitelerinden.'
+    },
+    {
+        id: 'bologna',
+        name: 'Bologna Üniversitesi',
+        country: 'İtalya',
+        city: 'Bologna',
+        flag: '🇮🇹',
+        ranking: 'QS #133',
+        language: 'İngilizce / İtalyanca',
+        programs: ['Mimarlık', 'Hukuk', 'Mühendislik', 'Sanat Tarihi'],
+        tuition: '2.000 – 3.500 €/yıl',
+        applicationFee: '50 €',
+        deadline: '30 Nisan',
+        note: 'Gelire göre harç indirimi ve bölgesel burs imkânı.'
+    },
+    {
+        id: 'tum',
+        name: 'Münih Teknik Üniversitesi (TUM)',
+        country: 'Almanya',
+        city: 'Münih',
+        flag: '🇩🇪',
+        ranking: 'QS #28',
+        language: 'İngilizce / Almanca',
+        programs: ['Makine Mühendisliği', 'Elektrik-Elektronik', 'Bilgisayar Bilimi', 'Fizik'],
+        tuition: 'Harçsız (≈150 €/dönem katkı payı)',
+        applicationFee: 'Ücretsiz',
+        deadline: '15 Temmuz',
+        note: 'Devlet üniversitesi; yalnızca dönemlik katkı payı ödenir.'
+    },
+    {
+        id: 'amsterdam',
+        name: 'Amsterdam Üniversitesi',
+        country: 'Hollanda',
+        city: 'Amsterdam',
+        flag: '🇳🇱',
+        ranking: 'QS #55',
+        language: 'İngilizce',
+        programs: ['İşletme', 'Veri Bilimi', 'Medya', 'Ekonomi'],
+        tuition: '9.000 – 15.000 €/yıl',
+        applicationFee: '100 €',
+        deadline: '1 Mayıs',
+        note: 'Programların tamamına yakını İngilizce yürütülür.'
+    },
+    {
+        id: 'vienna',
+        name: 'Viyana Üniversitesi',
+        country: 'Avusturya',
+        city: 'Viyana',
+        flag: '🇦🇹',
+        ranking: 'QS #137',
+        language: 'Almanca / İngilizce',
+        programs: ['Psikoloji', 'Felsefe', 'Biyoloji', 'İşletme'],
+        tuition: '≈1.500 €/yıl',
+        applicationFee: 'Ücretsiz',
+        deadline: '5 Eylül',
+        note: 'AB dışı öğrenciler için dahi düşük harç politikası.'
+    },
+    {
+        id: 'budapest',
+        name: 'Semmelweis Üniversitesi',
+        country: 'Macaristan',
+        city: 'Budapeşte',
+        flag: '🇭🇺',
+        ranking: 'QS #301',
+        language: 'İngilizce / Macarca',
+        programs: ['Tıp', 'Diş Hekimliği', 'Eczacılık'],
+        tuition: '16.000 – 22.000 $/yıl',
+        applicationFee: '350 $',
+        deadline: '31 Mayıs',
+        note: 'Sağlık bilimlerinde uluslararası tanınırlığı yüksek.'
+    },
+    {
+        id: 'sapienza',
+        name: 'Sapienza Roma Üniversitesi',
+        country: 'İtalya',
+        city: 'Roma',
+        flag: '🇮🇹',
+        ranking: 'QS #132',
+        language: 'İngilizce / İtalyanca',
+        programs: ['Mimarlık', 'Tıp', 'Havacılık Mühendisliği', 'Arkeoloji'],
+        tuition: '1.000 – 2.900 €/yıl',
+        applicationFee: '35 €',
+        deadline: '29 Nisan',
+        note: 'Avrupa\'nın en büyük kampüslerinden biri.'
+    },
+    {
+        id: 'krakow',
+        name: 'Jagiellonian Üniversitesi',
+        country: 'Polonya',
+        city: 'Krakov',
+        flag: '🇵🇱',
+        ranking: 'QS #304',
+        language: 'İngilizce / Lehçe',
+        programs: ['Tıp', 'Uluslararası İlişkiler', 'Biyoteknoloji'],
+        tuition: '4.000 – 15.000 €/yıl',
+        applicationFee: '20 €',
+        deadline: '15 Haziran',
+        note: '1364\'te kurulan, Polonya\'nın en eski üniversitesi.'
+    }
+];
+
+const CONSULTANTS = [
+    {
+        name: 'Elif Kaya',
+        title: 'Kıdemli Eğitim Danışmanı',
+        countries: ['Almanya', 'Avusturya'],
+        expertise: 'Mühendislik ve devlet üniversitesi başvuruları',
+        languages: ['Türkçe', 'Almanca', 'İngilizce'],
+        experience: 9,
+        rating: 4.9,
+        sessions: 640,
+        email: 'elif@edupath.example',
+        phone: '+90 555 000 00 01'
+    },
+    {
+        name: 'Mert Demir',
+        title: 'Tıp & Sağlık Bilimleri Danışmanı',
+        countries: ['Çekya', 'Macaristan'],
+        expertise: 'Tıp, diş hekimliği ve eczacılık kabulleri',
+        languages: ['Türkçe', 'İngilizce'],
+        experience: 7,
+        rating: 4.8,
+        sessions: 480,
+        email: 'mert@edupath.example',
+        phone: '+90 555 000 00 02'
+    },
+    {
+        name: 'Zeynep Arslan',
+        title: 'İtalya Program Uzmanı',
+        countries: ['İtalya'],
+        expertise: 'Mimarlık, sanat ve burslu (DSU) başvurular',
+        languages: ['Türkçe', 'İtalyanca', 'İngilizce'],
+        experience: 6,
+        rating: 4.9,
+        sessions: 390,
+        email: 'zeynep@edupath.example',
+        phone: '+90 555 000 00 03'
+    },
+    {
+        name: 'Can Yıldız',
+        title: 'Vize ve Denklik Danışmanı',
+        countries: ['Polonya', 'Çekya', 'Macaristan'],
+        expertise: 'Öğrenci vizesi, denklik ve apostil süreçleri',
+        languages: ['Türkçe', 'İngilizce'],
+        experience: 8,
+        rating: 4.7,
+        sessions: 720,
+        email: 'can@edupath.example',
+        phone: '+90 555 000 00 04'
+    },
+    {
+        name: 'Selin Öztürk',
+        title: 'Hollanda & İskandinavya Uzmanı',
+        countries: ['Hollanda'],
+        expertise: 'İşletme, veri bilimi ve İngilizce lisans programları',
+        languages: ['Türkçe', 'İngilizce', 'Felemenkçe'],
+        experience: 5,
+        rating: 4.8,
+        sessions: 310,
+        email: 'selin@edupath.example',
+        phone: '+90 555 000 00 05'
+    },
+    {
+        name: 'Burak Şahin',
+        title: 'Burs ve Finansman Danışmanı',
+        countries: ['Almanya', 'İtalya', 'Polonya'],
+        expertise: 'Burs başvuruları, harç indirimleri ve bütçe planlama',
+        languages: ['Türkçe', 'İngilizce'],
+        experience: 10,
+        rating: 4.9,
+        sessions: 850,
+        email: 'burak@edupath.example',
+        phone: '+90 555 000 00 06'
+    }
+];
