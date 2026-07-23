@@ -32,6 +32,27 @@ const _m=new THREE.Matrix4(), _q=new THREE.Quaternion(), _s=new THREE.Vector3(),
 const _white=new THREE.Color(0xffffff), _green=new THREE.Color(0x2ed573),
       _dimCol=new THREE.Color(0x3a4152), _tmpCol=new THREE.Color();
 
+/* --------------------------------------------------------------- CULLING ---
+   Kare başına tek frustum + mesafe testi. Görüş konisi dışındaki (ya da çok
+   uzaktaki) etiket/ek sprite'ları .visible=false ile GPU'dan tamamen düşer
+   (her biri ayrı draw call) ve pahalı opaklık matematiği atlanır. Instanced
+   atom/yuva örnekleri zaten 2 draw call olduğundan onlar sürekli çizilir. */
+const _frustum=new THREE.Frustum(), _viewProj=new THREE.Matrix4(), _sph=new THREE.Sphere();
+export let culling=true, culledCount=0;
+export function setCulling(on){ culling=on; }
+export function toggleCulling(){ culling=!culling; return culling; }
+function updateFrustum(){
+    _viewProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    _frustum.setFromProjectionMatrix(_viewProj);
+}
+/* pos görünür mü? radius sprite yarıçapı (kenar sprite'ları erken kesilmesin) */
+function visibleAt(pos, radius, maxDist){
+    if(!culling) return true;
+    if(maxDist>0 && camera.position.distanceTo(pos)>maxDist) return false;
+    _sph.center.copy(pos); _sph.radius=radius;
+    return _frustum.intersectsSphere(_sph);
+}
+
 export function colorOf(n){ return new THREE.Color(PALETTE[hashStr(n.id)%PALETTE.length]); }
 
 /* ---------------------------------------------------------------- kurulum */
@@ -356,10 +377,10 @@ function drawLabel(i,node,pos,r,isOpen){
     const w=r*9;
     L.spr.scale.set(w, w*160/512, 1);
     L.spr.position.set(pos.x, pos.y+r*2.1+w*0.13, pos.z);
-    L.spr.visible=true;
+    L.spr.visible=true; L.labelOn=true; // labelOn: slot etkin; visible ise render'da culling belirler
 }
 export function refreshLabels(){
-    labelPool.forEach(L=>L.spr.visible=false);
+    labelPool.forEach(L=>{ L.spr.visible=false; L.labelOn=false; });
     atomInst.forEach((a,i)=>{ if(i<LABEL_CAP && a.kind!=='portal') drawLabel(i,a.node,a.pos,a.r,a.kind==='open'); });
 }
 export function refreshLabelFor(node){
@@ -420,6 +441,8 @@ export function fadeAttachments(){
     const node=State.openNode; if(!node) return;
     const R=worldOf(node).radius;
     attachGroup.children.forEach(spr=>{
+        /* frustum culling: görüş dışı ek çizilmez, opaklık hesabı atlanır */
+        if(!visibleAt(spr.position, spr.scale.x, R*3.4)){ spr.visible=false; culledCount++; return; }
         const d=camera.position.distanceTo(spr.position);
         const o=THREE.MathUtils.clamp((R*3.2-d)/(R*1.6),0,1);
         spr.material.opacity=spr.material.map?o:0;
@@ -443,11 +466,15 @@ export function toScreen(pos){
 /* -------------------------------------------------------------- kare çizimi */
 export function render(t){
     if(!State.openNode) return;
+    updateFrustum(); culledCount=0;
     writeInstances(t);
     fadeAttachments();
     const RL=worldOf(State.openNode).radius;
     for(const L of labelPool){
-        if(!L.spr.visible) continue;
+        if(!L.labelOn) continue;              // bu slotta etiket yok (refreshLabels belirledi)
+        /* frustum + mesafe culling: görüş dışı etiket çizilmez */
+        if(!visibleAt(L.spr.position, L.spr.scale.x, RL*3.6)){ L.spr.visible=false; culledCount++; continue; }
+        L.spr.visible=true;
         const d=camera.position.distanceTo(L.spr.position);
         L.spr.material.opacity=THREE.MathUtils.clamp((RL*3.4-d)/(RL*1.2),0,1);
     }
@@ -455,6 +482,7 @@ export function render(t){
     if(composer) composer.render();
     else renderer.render(scene,camera);
 }
+export function drawCallsCulled(){ return culledCount; }
 export function drawCalls(){ return renderer.info.render.calls; }
 export function getMeshes(){ return { atomsMesh, slotsMesh }; }
 

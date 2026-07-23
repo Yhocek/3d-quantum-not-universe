@@ -199,6 +199,120 @@ function pushHist(key, price) {
     priceHist.set(key, h);
 }
 
+/* "Strategy"/"Strateji" defterini bul (ada göre, yoksa kök etiketine göre) */
+async function findStrategyNb(hint) {
+    const list = await api('notebooks');
+    let meta = null;
+    if (hint)
+        meta = list.find(x => x.id === hint) ||
+               list.find(x => (x.name || '').trim().toLowerCase() === String(hint).trim().toLowerCase());
+    else meta = list.find(x => /strateji|strategy/i.test(x.name || ''));
+    let nb = meta ? await getNb(meta.id) : null;
+    if (!nb && !hint) { // kök etiketi "Strategy" olan defteri ara
+        for (const m of list) {
+            const cand = await getNb(m.id);
+            if (/strateji|strategy/i.test(cand.root.label || '')) { nb = cand; meta = m; break; }
+        }
+    }
+    if (!nb) throw new Error('strategy notebook not found — notebooks: ' +
+        (list.map(x => x.name).join(', ') || 'none') + '. Pass notebook, or name one "Strategy".');
+    return { nb, meta };
+}
+
+/* çifti örnekle ve QGPR tahmini üret (predict_market + evaluate_strategy paylaşır) */
+async function collectAndPredict(key, h, want) {
+    const [chain, addr] = key.split('/');
+    const fresh = () => (priceHist.get(key) || []).filter(x => Date.now() - x.t < 120000);
+    let guard = 0, pairInfo = null;
+    while (fresh().length < want && guard++ < want + 6) {
+        const j = await dexFetch('/latest/dex/pairs/' + encodeURIComponent(chain) + '/' + encodeURIComponent(addr));
+        const p = (j.pairs || (j.pair ? [j.pair] : []))[0];
+        if (!p) throw new Error('pair not found: ' + key);
+        pairInfo = fmtPair(p);
+        pushHist(key, pairInfo.priceUsd);
+        if (fresh().length < want) await sleep(1500);
+    }
+    const hist = fresh();
+    if (hist.length < 4) throw new Error('not enough price samples (' + hist.length + ') — feed may be stale');
+    const t0 = hist[0].t;
+    const ts = hist.map(x => (x.t - t0) / 1000), ys = hist.map(x => x.p);
+    const last = ys[ys.length - 1], lastT = ts[ts.length - 1];
+    const { price, sigma } = qgprPredict(ts, ys, lastT + h);
+    const windowS = +(lastT - ts[0]).toFixed(1);
+    return {
+        pairInfo, samples: hist.length, windowSeconds: windowS, lastPrice: last,
+        horizonSeconds: h,
+        predictedPrice: +price.toFixed(8),
+        ci95: [+(price - 1.96 * sigma).toFixed(8), +(price + 1.96 * sigma).toFixed(8)],
+        predictedChangePct: +((price - last) / last * 100).toFixed(4),
+        sigma: +sigma.toFixed(8),
+        flat: ys.every(v => v === ys[0])
+    };
+}
+
+/* ============== DETERMİNİSTİK STRATEJİ DEĞERLENDİRİCİ (koşul dili) =========
+   Not gövdelerindeki "IF <metrik> <op> <değer> [AND ...] THEN ..." satırları
+   piyasa metriklerine karşı değerlendirilir; TÜM koşulları tutan düğüm
+   "ateşlenir" ve alt fonksiyonlarına inilir. Koşulsuz düğümler geçirgendir.
+   Ayrıştırılamayan koşul GÜVENLİ tarafta kalır: ateşlenmez, raporlanır.   */
+function metricOf(txt, M) {
+    const t = String(txt).toLowerCase();
+    if (/predicted/.test(t)) return 'predicted change';
+    if (/volume/.test(t)) return 'volume 24h';
+    if (/liquidity|liq\b/.test(t)) return 'liquidity';
+    if (/buys/.test(t)) return 'buys 24h';
+    if (/sells/.test(t)) return 'sells 24h';
+    if (/change|Δ|delta/.test(t)) {
+        if (/(m5|5 ?m(in)?)/.test(t)) return 'change 5m';
+        if (/(h1|1 ?h(our)?)/.test(t)) return 'change 1h';
+        if (/(h6|6 ?h(our)?)/.test(t)) return 'change 6h';
+        return 'change 24h';
+    }
+    if (/price|fiyat/.test(t)) return 'price';
+    return M && Object.prototype.hasOwnProperty.call(M, t.trim()) ? t.trim() : null;
+}
+function parseVal(txt, M) {
+    const m = metricOf(txt, M);
+    if (m != null && M[m] != null && !/^[\s$+-]*[\d.]/.test(String(txt).trim())) return M[m];
+    let s = String(txt).toLowerCase().replace(/[$,+%\s]/g, '');
+    let mult = 1;
+    if (/[kmb]$/.test(s)) { mult = { k: 1e3, m: 1e6, b: 1e9 }[s.slice(-1)]; s = s.slice(0, -1); }
+    const v = parseFloat(s);
+    return Number.isFinite(v) ? v * mult : null;
+}
+function evalConditions(body, M) { // → {pass, checks:[{cond,ok|null,detail}]}
+    const checks = [];
+    let pass = true, hasCond = false;
+    for (const line of htmlToText(body).split('\n')) {
+        const m = /\bIF\s+(.+?)\s+THEN\b/i.exec(line) || /\bIF\s+(.+)$/i.exec(line);
+        if (!m) continue;
+        hasCond = true;
+        for (const cond of m[1].split(/\s+AND\s+/i)) {
+            const c = /(.+?)\s*(>=|<=|==?|>|<)\s*(.+)/.exec(cond.trim());
+            const lhsM = c && metricOf(c[1], M);
+            const lhs = c && lhsM != null ? M[lhsM] : null;
+            const rhs = c && parseVal(c[3], M);
+            if (!c || lhs == null || rhs == null) {
+                checks.push({ cond: cond.trim(), ok: null, detail: 'unparsed — treated as NOT firing' });
+                pass = false; continue;
+            }
+            const op = c[2] === '=' ? '==' : c[2];
+            const ok = { '>': lhs > rhs, '<': lhs < rhs, '>=': lhs >= rhs, '<=': lhs <= rhs, '==': lhs === rhs }[op];
+            checks.push({ cond: cond.trim(), ok, detail: lhsM + ' = ' + lhs + ' ' + op + ' ' + rhs });
+            if (!ok) pass = false;
+        }
+    }
+    return { pass, hasCond, checks };
+}
+function actionsOf(body) {
+    const out = [];
+    for (const line of htmlToText(body).split('\n')) {
+        const m = /\bTHEN\s+(.+)$/i.exec(line) || /\bACTION\s*:?\s*(.+)$/i.exec(line);
+        if (m && !/^descend\b/i.test(m[1].trim())) out.push(m[1].replace(/^ACTION\s*:?\s*/i, '').trim());
+    }
+    return out;
+}
+
 /* strateji ağacı → "iç içe fonksiyon" görünümü: her düğüm bir fonksiyon,
    gövdesi koşul/eylem satırları, çocukları alt fonksiyonlardır */
 function strategyView(n, addr, depth, lines) {
@@ -629,40 +743,21 @@ const TOOLS = [
                 key = pairInfo.chain + '/' + pairInfo.pairAddress;
                 pushHist(key, pairInfo.priceUsd);
             } else throw new Error('pass query or pair');
-            const [chain, addr] = key.split('/');
-            /* örnekle: taze geçmişi (≤120 sn) yeniden kullan, eksikse tamamla */
-            const fresh = () => (priceHist.get(key) || []).filter(x => Date.now() - x.t < 120000);
-            let guard = 0;
-            while (fresh().length < want && guard++ < want + 6) {
-                const j = await dexFetch('/latest/dex/pairs/' + encodeURIComponent(chain) + '/' + encodeURIComponent(addr));
-                const p = (j.pairs || (j.pair ? [j.pair] : []))[0];
-                if (!p) throw new Error('pair not found: ' + key);
-                pairInfo = fmtPair(p);
-                pushHist(key, pairInfo.priceUsd);
-                if (fresh().length < want) await sleep(1500);
-            }
-            const hist = fresh();
-            if (hist.length < 4) throw new Error('not enough price samples (' + hist.length + ') — feed may be stale');
-            const t0 = hist[0].t;
-            const ts = hist.map(x => (x.t - t0) / 1000), ys = hist.map(x => x.p);
-            const last = ys[ys.length - 1], lastT = ts[ts.length - 1];
-            const { price, sigma } = qgprPredict(ts, ys, lastT + h);
-            const windowS = +(lastT - ts[0]).toFixed(1);
-            const flat = ys.every(v => v === ys[0]);
+            const r = await collectAndPredict(key, h, want);
             return {
-                pair: pairInfo ? pairInfo.pair : key, key,
+                pair: (r.pairInfo || pairInfo || {}).pair || key, key,
                 asOf: new Date().toISOString(),
-                samples: hist.length, windowSeconds: windowS,
-                lastPrice: last,
-                horizonSeconds: h,
-                predictedPrice: +price.toFixed(8),
-                ci95: [+(price - 1.96 * sigma).toFixed(8), +(price + 1.96 * sigma).toFixed(8)],
-                predictedChangePct: +((price - last) / last * 100).toFixed(4),
-                sigma: +sigma.toFixed(8),
+                samples: r.samples, windowSeconds: r.windowSeconds,
+                lastPrice: r.lastPrice,
+                horizonSeconds: r.horizonSeconds,
+                predictedPrice: r.predictedPrice,
+                ci95: r.ci95,
+                predictedChangePct: r.predictedChangePct,
+                sigma: r.sigma,
                 method: 'QGPR — fidelity quantum kernel k(x,x\')=∏cos²(ω_j·Δt/2) (4-qubit angle-encoding ' +
                         'product feature map, simulated exactly) + Cholesky GPR; frequencies scaled to the sampling window',
-                notes: (flat ? 'price did not move during the sampling window — flat forecast; ' : '') +
-                       (h > windowS * 2 ? 'horizon far exceeds the observation window: expect a wide confidence interval; ' : '') +
+                notes: (r.flat ? 'price did not move during the sampling window — flat forecast; ' : '') +
+                       (h > r.windowSeconds * 2 ? 'horizon far exceeds the observation window: expect a wide confidence interval; ' : '') +
                        'statistical extrapolation with uncertainty — not financial advice'
             };
         }
@@ -675,26 +770,92 @@ const TOOLS = [
             address: { type: 'string', description: 'Start from this subtree (default "0")' }
         }, required: [] },
         run: async a => {
-            const list = await api('notebooks');
-            let meta = null;
-            if (a.notebook)
-                meta = list.find(x => x.id === a.notebook) ||
-                       list.find(x => (x.name || '').trim().toLowerCase() === String(a.notebook).trim().toLowerCase());
-            else meta = list.find(x => /strateji|strategy/i.test(x.name || ''));
-            let nb = meta ? await getNb(meta.id) : null;
-            if (!nb && !a.notebook) { // kök etiketi "Strategy" olan defteri ara
-                for (const m of list) {
-                    const cand = await getNb(m.id);
-                    if (/strateji|strategy/i.test(cand.root.label || '')) { nb = cand; meta = m; break; }
-                }
-            }
-            if (!nb) throw new Error('strategy notebook not found — notebooks: ' +
-                (list.map(x => x.name).join(', ') || 'none') + '. Pass notebook, or name one "Strategy".');
+            const { nb, meta } = await findStrategyNb(a.notebook);
             const start = nodeAt(nb.root, a.address || '0');
             if (!start) throw new Error('address not found: ' + a.address);
             return 'STRATEGY: ' + meta.name + ' (notebook_id: ' + meta.id + ')\n' +
                 'Read as nested functions — descend only into branches whose conditions match the market:\n\n' +
                 strategyView(start, a.address || '0', 0, []).join('\n');
+        }
+    },
+    {
+        name: 'evaluate_strategy',
+        description: 'DETERMINISTIC strategy evaluation (no LLM needed — powers the sleeping-analyst watcher). Fetches live market data for a symbol, optionally a QGPR forecast (horizon 10-60s), then walks the strategy tree top-down: nodes whose body lines "IF <metric> <op> <value> [AND ...] THEN ..." ALL pass are FIRED and their children are descended into; nodes without conditions are pass-through. Metrics: price, change 5m/1h/6h/24h (%), volume 24h, liquidity, buys/sells 24h, predicted change (QGPR). Values accept $, %, K/M/B. Unparsable conditions never fire (safe) and are reported. Returns fired routes with their prescribed actions — recommendations only.',
+        inputSchema: { type: 'object', properties: {
+            query: { type: 'string', description: 'Symbol/pair, e.g. "SOL/USDC" (top pair by liquidity)' },
+            pair: { type: 'string', description: 'Exact "chainId/pairAddress"' },
+            horizon_seconds: { type: 'number', description: 'Optional QGPR horizon 10-60s — enables the "predicted change" metric' },
+            notebook: { type: 'string', description: 'Strategy notebook name/id (default: auto-detect "Strategy")' }
+        }, required: [] },
+        run: async a => {
+            /* piyasa */
+            let pairInfo, key;
+            if (a.pair) {
+                key = String(a.pair);
+                const [chain, addr] = key.split('/');
+                const j = await dexFetch('/latest/dex/pairs/' + encodeURIComponent(chain) + '/' + encodeURIComponent(addr));
+                const p = (j.pairs || (j.pair ? [j.pair] : []))[0];
+                if (!p) throw new Error('pair not found: ' + key);
+                pairInfo = fmtPair(p);
+            } else if (a.query) {
+                const j = await dexFetch('/latest/dex/search?q=' + encodeURIComponent(a.query));
+                const best = (j.pairs || []).sort((x, y) => ((y.liquidity && y.liquidity.usd) || 0) - ((x.liquidity && x.liquidity.usd) || 0))[0];
+                if (!best) throw new Error('no pairs found for "' + a.query + '"');
+                pairInfo = fmtPair(best);
+                key = pairInfo.chain + '/' + pairInfo.pairAddress;
+            } else throw new Error('pass query or pair');
+            pushHist(key, pairInfo.priceUsd);
+            /* isteğe bağlı QGPR */
+            let pred = null;
+            if (a.horizon_seconds != null) {
+                const h = +a.horizon_seconds;
+                if (!Number.isFinite(h) || h < QGPR_MIN_H || h > QGPR_MAX_H)
+                    throw new Error('horizon_seconds must be between ' + QGPR_MIN_H + ' and ' + QGPR_MAX_H +
+                                    ' seconds — got ' + a.horizon_seconds + '. Predictions outside this range are not allowed.');
+                pred = await collectAndPredict(key, h, 8);
+            }
+            const M = {
+                'price': pairInfo.priceUsd,
+                'change 5m': (pairInfo.priceChangePct || {}).m5,
+                'change 1h': (pairInfo.priceChangePct || {}).h1,
+                'change 6h': (pairInfo.priceChangePct || {}).h6,
+                'change 24h': (pairInfo.priceChangePct || {}).h24,
+                'volume 24h': (pairInfo.volumeUsd || {}).h24,
+                'liquidity': pairInfo.liquidityUsd,
+                'buys 24h': (pairInfo.txns24h || {}).buys,
+                'sells 24h': (pairInfo.txns24h || {}).sells,
+                'predicted change': pred ? pred.predictedChangePct : null
+            };
+            /* stratejiyi gez */
+            const { nb, meta } = await findStrategyNb(a.notebook);
+            const fired = [], skipped = [], unparsed = [];
+            (function walk(n, addr, route) {
+                if (/^trade journal$/i.test(n.label || '')) return; // günlük değerlendirilmez
+                const r = evalConditions(n.html, M);
+                r.checks.filter(c => c.ok === null).forEach(c => unparsed.push({ address: addr, cond: c.cond }));
+                const label = (n.label || 'untitled');
+                const here = route ? route + ' → ' + label : label;
+                if (r.hasCond && !r.pass) {
+                    skipped.push({ address: addr, title: label,
+                        failed: r.checks.filter(c => !c.ok).map(c => c.detail || c.cond) });
+                    return; // koşul tutmadı: bu dala inilmez
+                }
+                if (r.hasCond && r.pass) {
+                    const acts = actionsOf(n.html);
+                    fired.push({ address: addr, title: label, route: here,
+                        matched: r.checks.map(c => c.detail),
+                        actions: acts.length ? acts : ['(no ACTION line — descend only)'] });
+                }
+                for (const c of (n.children || [])) walk(c, addr + '.' + c.slot, here);
+            })(nb.root, '0', '');
+            return {
+                symbol: pairInfo.pair, notebook: meta.name, asOf: new Date().toISOString(),
+                market: M,
+                prediction: pred ? { horizonSeconds: pred.horizonSeconds, predictedPrice: pred.predictedPrice,
+                                     ci95: pred.ci95, predictedChangePct: pred.predictedChangePct } : null,
+                fired, skipped, unparsed,
+                note: 'deterministic evaluation of YOUR written conditions — recommendations only, you execute manually'
+            };
         }
     },
     {

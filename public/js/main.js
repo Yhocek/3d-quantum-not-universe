@@ -30,6 +30,7 @@ function animate(){
     UI.updateOverlays();
     document.getElementById('st-speed').innerText=speed.toFixed(1);
     document.getElementById('st-calls').innerText=Engine.drawCalls();
+    document.getElementById('st-culled').innerText=Engine.drawCallsCulled();
 }
 
 (async function init(){

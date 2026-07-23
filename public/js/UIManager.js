@@ -700,6 +700,11 @@ function bindKeys(){
         if((e.ctrlKey||e.metaKey) && (e.key.toLowerCase()==='y' || (e.shiftKey&&e.key.toLowerCase()==='z'))){
             e.preventDefault(); afterTimeShift(D.redo(),'↷ Redone');
         }
+        /* frustum culling aç/kapat (performans hata ayıklama) */
+        if(!e.ctrlKey && !e.metaKey && e.key.toLowerCase()==='k'){
+            const on=Engine.toggleCulling();
+            toast(on?'✂️ Culling ON — off-screen labels/attachments skipped':'Culling OFF — everything drawn');
+        }
     });
 }
 

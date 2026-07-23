@@ -37,8 +37,9 @@
 | 🔗 **Twin Clusters** | Clusters sharing the same title path across notebooks (`Courses/Math` in both) are auto-bonded with thick amber edges in the brain graph |
 | 🎨 **Dark & Light Themes** | One-click toggle (◐), system-preference default, persisted; 3D scene, 2D map and brain graph all follow |
 | 🌍 **English UI** | All in-app text is English — use Google Translate for any language |
-| ⚡ **Performance-First** | Idle frame limiter (60→30→15 fps), dirty-flag graph redraws, visibility-gated sync polling — GPU/CPU stay cool |
+| ⚡ **Performance-First** | Frustum + distance **culling**, idle frame limiter (60→30→15 fps), dirty-flag graph redraws, visibility-gated sync polling — GPU/CPU stay cool |
 | 🔮 **QGPR Forecasts** | Quantum Gaussian Process Regression bridges laggy feeds: fidelity quantum kernel + GPR predicts price 10-60 s ahead (hard-bounded) with a 95% CI |
+| 👁 **Sleeping Analyst** | `strategy-watch.js` evaluates your strategy against live data on a timer and journals a recommendation only when a branch *newly* fires — no LLM needed |
 | 📈 **Note-Driven Trading** | Your strategy notebook is a program: notes = nested functions, Claude walks it against live DexScreener data and logs which branch fired — recommendations only, you execute |
 | 🛣️ **CH Route Search** | Shared maps are searchable by LLMs with real **Contraction Hierarchies** — shortest routes over tree bonds + wormholes |
 | 🧠 **Brain Network** | Obsidian-style: cross-notebook wormholes, `[[wikilinks]]`, and a force-directed **brain graph** of all notebooks as one neural network |
@@ -152,6 +153,7 @@ GET    /api/health                                    → { ok, name, auth }
 ```
 ├── server.js              # Zero-dependency Node.js backend + static file server
 ├── mcp-server.js          # MCP bridge (stdio) — lets Claude read & write your notes
+├── strategy-watch.js      # Sleeping-analyst watcher — evaluates strategy on a timer
 ├── .mcp.json              # Auto-discovered MCP config for Claude Code
 ├── verify.mjs             # Cross-module import/export + HTML ID consistency checker
 ├── package.json
@@ -222,6 +224,7 @@ The ◐ button in the HUD toggles themes; the choice persists in `localStorage` 
 
 Priority: don't tire the machine. The renderer works hard only when you do:
 
+- **Frustum + distance culling** — one frustum is built per frame; labels and attachment sprites outside the view cone (or too far) are skipped entirely — no draw call, no opacity math. The stats panel shows the live culled count; press **K** to toggle culling on/off. The 2 instanced atom/slot meshes stay as 2 draw calls regardless.
 - **Idle frame limiter** — after 4 s without input the main loop drops to ~30 fps, after 60 s to ~15 fps; the first pointer/key event instantly restores full rate. Background tabs cost zero (rAF pauses).
 - **Dirty-flag graph drawing** — the brain graph runs its force layout for a fixed number of iterations, then redraws only on pan/zoom/hover/search changes instead of every frame.
 - **Visibility-gated sync** — the 6 s MCP live-sync poll skips hidden tabs, pending local saves, and active typing.
@@ -291,6 +294,7 @@ Working inside this repo? Claude Code auto-discovers `.mcp.json` — just export
 | `read_strategy` | Strategy notebook as a nested-function view — bodies are condition/action lines |
 | `log_trade_decision` | Files a recommendation into `Trade Journal/<SYMBOL>` + wormhole to the fired node |
 | `predict_market` | **QGPR** price forecast 10-60 s ahead (strict bounds) with 95% confidence interval |
+| `evaluate_strategy` | Deterministic walk of the strategy tree vs. live data — returns which branches fired + actions |
 | `read_share` | Read any public shared map (`?s=...` URL or id) — no login needed |
 | `search_share` | Search a shared map; routes computed with **Contraction Hierarchies** |
 
@@ -327,6 +331,18 @@ Claude (via MCP) then acts as the interpreter, Obsidian + Claude style:
 2b. `predict_market(query, horizon_seconds)` — market feeds can lag, so this bridges the gap with **Quantum Gaussian Process Regression**: the live price is sampled ~1.5 s apart (recent history is reused), then a GPR runs on a **fidelity quantum kernel** `k(x,x′)=∏ⱼcos²(ωⱼ·Δt/2)` — the exact closed form of a 4-qubit angle-encoding product feature map, simulated classically — solved via Cholesky, returning the predicted price **plus a 95% confidence interval**. The horizon is user-set and **strictly bounded to 10–60 seconds**: anything below 10 s or above 60 s is rejected, and forecasts far beyond the sampling window are flagged as wide-uncertainty.
 3. Claude walks the tree **top-down like a call stack**, descending only into branches whose written conditions match the data, and reports which sub-function fired and what it prescribes.
 4. `log_trade_decision` — the conclusion lands in `Trade Journal/<SYMBOL>` with route, reasoning and market snapshot, **wormhole-linked to the strategy node that fired** — so on the brain graph you literally see which parts of your strategy have been firing.
+
+### 👁 Sleeping Analyst — hands-off, no LLM required
+
+`evaluate_strategy` is **deterministic** — it parses your `IF <metric> <op> <value> [AND …] THEN …` lines and fires the branches whose conditions all hold, no language model in the loop. `strategy-watch.js` drives it on a timer over the MCP server (reusing its auth, QGPR and journalling):
+
+```bash
+NOTE_USER=you NOTE_PASS=... \
+WATCH_SYMBOLS="SOL/USDC,ETH/USDC" WATCH_INTERVAL=60 WATCH_HORIZON=30 \
+node strategy-watch.js
+```
+
+Every `WATCH_INTERVAL` seconds it evaluates each symbol and logs a recommendation to `Trade Journal/<SYMBOL>` — but **edge-triggered**: only when a branch *newly* fires (it won't re-journal the same fired branch until it stops firing and fires again), so no spam. Metrics understood: `price`, `change 5m/1h/6h/24h`, `volume 24h`, `liquidity`, `buys/sells 24h`, and `predicted change` (QGPR, when `WATCH_HORIZON` is set to 10-60). Unparsable conditions never fire (fail-safe). It places no orders — you still execute manually.
 
 > ⚠️ **Recommendations only.** This bridge never places orders and holds no exchange or brokerage credentials — TradingView and Robinhood offer no official public trading APIs, and unofficial ones risk your account. You review each journal entry and execute manually on your platform. Nothing here is financial advice; strategies fire exactly as *you* wrote them.
 
