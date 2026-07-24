@@ -263,6 +263,27 @@
 .sub .xnb{color:#ff5fd0;font-size:10px;max-width:90px;overflow:hidden;
     text-overflow:ellipsis;white-space:nowrap}
 
+/* ---------- v9: API / AYARLAR (web'den .env düzenleme) ---------- */
+#settings{position:fixed;inset:0;background:var(--veil);z-index:32;display:none;
+    align-items:center;justify-content:center}
+#settings.open{display:flex}
+#settings .card{width:min(560px,94vw);max-height:86vh;display:flex;flex-direction:column;gap:8px;border-color:var(--amber)}
+#settings .card h2{color:var(--amber)}
+#settings code{color:var(--cyan)}
+#settings-body{overflow-y:auto;display:flex;flex-direction:column;gap:2px;padding-right:4px}
+.cfg-group{margin-top:8px;font-size:10px;color:var(--amber);text-transform:uppercase;letter-spacing:1px;
+    border-bottom:1px dashed var(--line);padding-bottom:3px}
+.cfg-row{display:flex;align-items:center;gap:8px;padding:3px 0}
+.cfg-row label{flex:0 0 150px;font-size:11px;color:var(--dim);text-align:right;word-break:break-all}
+.cfg-row input{flex:1;min-width:0;background:var(--input);border:1px dashed var(--line);color:var(--text);
+    font-family:inherit;font-size:11px;padding:6px;outline:none}
+.cfg-row input:focus{border-color:var(--amber)}
+.cfg-hint{font-size:9px;color:var(--faint);margin:0 0 5px 158px;line-height:1.3}
+#settings-msg{font-size:11px;min-height:14px;margin:0;color:var(--green)}
+#settings-msg.err{color:var(--red)}
+#settings-save{background:var(--amber);color:var(--bg)}
+#settings-save:hover{background:#ffb733}
+
 /* ---------- v7: KİMLİK KATMANI ---------- */
 #auth{position:fixed;inset:0;background:var(--veil);z-index:40;display:none;
     align-items:center;justify-content:center}

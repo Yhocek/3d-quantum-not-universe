@@ -28,13 +28,14 @@ export function init(){
                                   $('tunnel').classList.contains('open') ||
                                   $('brain').classList.contains('open') ||
                                   $('xlink').classList.contains('open') ||
+                                  $('settings').classList.contains('open') ||
                                   $('auth').classList.contains('show'));
     D.onSaveState(setSaveDot);
     setSaveDot(State.serverOn ? 'saved' : 'off'); // probe UI'dan önce koştu; ilk durumu şimdi bas
 
     bindPanel(); bindQuick(); bindCard(); bindSearch(); bindModes(); bindAuth();
     bindButtons(); bindTunnel(); bindTwod(); bindFiles(); bindKeys();
-    bindBrain(); bindXlink(); bindTheme();
+    bindBrain(); bindXlink(); bindTheme(); bindSettings();
     startMcpSync();
     window.addEventListener('mousemove', tipMove);
     window.addEventListener('resize', ()=>{ if($('twod').classList.contains('open')) drawTwod(); });
@@ -691,6 +692,7 @@ function bindKeys(){
             $('twod').classList.remove('open');
             $('tunnel').classList.remove('open');
             $('xlink').classList.remove('open');
+            $('settings').classList.remove('open');
             if(brainOn) closeBrain();
         }
         if(inField) return;
@@ -1127,6 +1129,82 @@ async function gotoBrainNode(i){
     Controls.spawnNear(rec.node);
     updatePanel();
     toast('🧠 '+State.notebooks[rec.nbIndex].name+' · '+D.address(rec.node)+(rec.node.title?' — '+rec.node.title:''));
+}
+
+/* ============================================ API / AYARLAR (.env web'den) ==
+   Kullanıcı kendi API bilgilerini tarayıcıdan girer; kaydet → sunucunun
+   yerel .env dosyasına yazılır. Sırlar maskeli gelir, boş bırakılırsa korunur.
+   ========================================================================== */
+const CFG_GROUPS = [
+    ['MCP bridge (Claude → your notes)', [
+        ['NOTE_BASE_URL', 'Site URL the MCP bridge talks to', 'default http://localhost:3000', false],
+        ['NOTE_USER', 'Your account username', '', false],
+        ['NOTE_PASS', 'Your account password', 'secret', true],
+        ['NOTE_REGISTER', 'Set 1 to auto-create the account', 'default off', false],
+    ]],
+    ['Market data', [
+        ['DEX_API_BASE', 'DexScreener API base', 'default https://api.dexscreener.com (no key)', false],
+    ]],
+    ['Sleeping-analyst watcher', [
+        ['WATCH_SYMBOLS', 'Comma-separated pairs', 'default SOL/USDC', false],
+        ['WATCH_INTERVAL', 'Seconds between sweeps (min 15)', 'default 60', false],
+        ['WATCH_HORIZON', 'QGPR horizon 10-60s', 'blank = no forecast', false],
+    ]],
+    ['Live execution — YOUR OWN endpoint', [
+        ['WATCH_LIVE', 'Set 1 to enable webhook dispatch', 'default off', false],
+        ['WATCH_WEBHOOK', 'Your https execution endpoint', 'holds your broker keys, not this app', false],
+        ['WATCH_CONFIRM', 'Must equal I-UNDERSTAND to arm', 'secret; else dry-run', true],
+        ['WATCH_MAX_USD', 'Per-trade cap (USD)', 'default 25', false],
+        ['WATCH_ACTIONS', 'Actions allowed to dispatch', 'default buy,sell,reduce', false],
+        ['WATCH_SECRET', 'Bearer token sent to your webhook', 'secret', true],
+    ]],
+];
+function bindSettings(){
+    $('btn-settings').onclick=openSettings;
+    $('settings-close').onclick=()=>$('settings').classList.remove('open');
+    $('settings-save').onclick=saveSettings;
+}
+async function openSettings(){
+    const body=$('settings-body'); body.innerHTML=''; $('settings-msg').textContent=''; $('settings-msg').className='';
+    if(!State.serverOn || !State.user){
+        setSettingsMsg('Settings need the backend + login. Run `node server.js` and sign in, or edit .env directly.', true);
+        $('settings').classList.add('open'); return;
+    }
+    let data;
+    try{ data=await D.api('config'); }
+    catch(e){ setSettingsMsg('Could not load config: '+e.message, true); $('settings').classList.add('open'); return; }
+    CFG_GROUPS.forEach(([title, rows])=>{
+        const h=document.createElement('div'); h.className='cfg-group'; h.textContent=title; body.appendChild(h);
+        rows.forEach(([key, label, hint, secret])=>{
+            const row=document.createElement('div'); row.className='cfg-row';
+            const l=document.createElement('label'); l.textContent=key; l.title=label; body.appendChild(row);
+            const inp=document.createElement('input'); inp.id='cfg-'+key; inp.autocomplete='off';
+            inp.type = secret ? 'password' : 'text';
+            if(secret){ inp.placeholder = data.secretsSet && data.secretsSet[key] ? '•••••• (set — blank keeps it)' : (hint||label); }
+            else { inp.value = (data.values && data.values[key]) || ''; inp.placeholder = hint||label; }
+            const hintEl=document.createElement('div'); hintEl.className='cfg-hint'; hintEl.textContent=label+(hint?' · '+hint:'');
+            row.append(l, inp); body.appendChild(hintEl);
+        });
+    });
+    setSettingsMsg('Loaded from '+(data.path||'.env')+'. Paste your values and Save.');
+    $('settings').classList.add('open');
+}
+function setSettingsMsg(m, err){ const el=$('settings-msg'); el.textContent=m; el.className=err?'err':''; }
+async function saveSettings(){
+    if(!State.serverOn || !State.user){ setSettingsMsg('Backend + login required.', true); return; }
+    const config={};
+    CFG_GROUPS.forEach(([,rows])=>rows.forEach(([key,,,secret])=>{
+        const inp=$('cfg-'+key); if(!inp) return;
+        const v=inp.value;
+        if(secret && v==='') return; // boş sır: gönderme → sunucu korur
+        config[key]=v;
+    }));
+    setSettingsMsg('Saving…');
+    try{
+        const r=await D.api('config',{method:'PUT', body:JSON.stringify({config})});
+        setSettingsMsg('✅ Saved '+r.written.length+' key(s) to .env. '+(r.note||''));
+        toast('⚙ API config saved to .env');
+    }catch(e){ setSettingsMsg('Save failed: '+e.message, true); }
 }
 
 /* ============================================================== TEMA ======

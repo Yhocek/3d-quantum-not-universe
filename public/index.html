@@ -83,6 +83,7 @@
     <button id="btn-share" class="share">🔗 SHARE</button>
     <button id="btn-twod" class="ghost">🗺 2D</button>
     <button id="btn-brain" class="ghost">🧠 BRAIN</button>
+    <button id="btn-settings" class="ghost">⚙ API</button>
     <button id="btn-topdown" class="ghost">📸 TOP-DOWN PNG</button>
     <button id="btn-export" class="ghost">↓ JSON</button>
     <button id="btn-import" class="ghost">↑ JSON</button>
@@ -125,6 +126,23 @@
         <span id="brain-title">🧠 Brain Graph — click node: go · drag: pan · wheel: zoom</span>
         <input id="brain-in" placeholder="🔍 search the brain... (Enter: jump to first match)">
         <button id="brain-close" class="ghost">✕ CLOSE</button>
+    </div>
+</div>
+
+<!-- API / Settings: paste your own keys → saved to the server's local .env -->
+<div id="settings">
+    <div class="card panel">
+        <h2>⚙ API &amp; Settings</h2>
+        <p>Paste your own API config below. On save it is written to the server's local
+           <code>.env</code> file (git-ignored). Leave a field blank to use its default;
+           leave a <span class="hl">secret</span> blank to keep the current value.
+           The MCP bridge &amp; strategy-watch pick changes up on their next launch.</p>
+        <div id="settings-body"></div>
+        <p id="settings-msg"></p>
+        <div class="row">
+            <button id="settings-save">💾 SAVE TO .env</button>
+            <button id="settings-close" class="ghost">✕ CLOSE</button>
+        </div>
     </div>
 </div>
 

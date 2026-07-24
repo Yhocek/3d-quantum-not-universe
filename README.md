@@ -35,6 +35,7 @@
 | 🗂️ **Auto-Categorization** | Connected LLMs file conversations & code into a hierarchy (`Courses/Math/Calculus/Calculus1 Notes`) via `file_note` — the universe grows itself |
 | 🤖 **Live MCP Sync** | Notes written by Claude via MCP appear in the open browser within seconds — no reload |
 | 🔗 **Twin Clusters** | Clusters sharing the same title path across notebooks (`Courses/Math` in both) are auto-bonded with thick amber edges in the brain graph |
+| ⚙️ **In-App API Settings** | Paste your API keys/endpoints in the browser (⚙ API button) — saved to the server's local `.env`, secrets masked, no file editing |
 | 🎨 **Dark & Light Themes** | One-click toggle (◐), system-preference default, persisted; 3D scene, 2D map and brain graph all follow |
 | 🌍 **English UI** | All in-app text is English — use Google Translate for any language |
 | ⚡ **Performance-First** | Frustum + distance **culling**, idle frame limiter (60→30→15 fps), dirty-flag graph redraws, visibility-gated sync polling — GPU/CPU stay cool |
@@ -75,6 +76,8 @@ cp .env.example .env      # then edit .env in any text editor
 ```
 
 No values are required to try the app — `node server.js` runs with `.env` blank or absent. The real shell environment always overrides the file.
+
+**Prefer the browser?** Once the backend is running and you're signed in, click **⚙ API** in the bottom bar: paste your keys/endpoints into the grouped fields and hit **Save to .env** — the server writes them to its local `.env` for you (secrets are masked, blank-secret keeps the current value, only whitelisted keys are writable, and the endpoint requires login + CSRF). The MCP bridge and `strategy-watch.js` pick the changes up on their next launch; server-level keys need a restart.
 
 ---
 

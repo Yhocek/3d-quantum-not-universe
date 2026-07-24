@@ -30,7 +30,42 @@ const PUBLIC_DIR = path.join(__dirname, 'public');
 const DATA_DIR = path.join(__dirname, 'data');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 const AUDIT_FILE = path.join(DATA_DIR, 'audit.log');
+const ENV_FILE = path.join(__dirname, '.env');
 const SECURE = !!(process.env.COOKIE_SECURE || (process.env.TLS_KEY && process.env.TLS_CERT));
+
+/* ---------------------------------------------- web-editable .env config ----
+   The Settings panel lets a logged-in user paste their own API config in the
+   browser; it is persisted to the local .env (git-ignored). Only these keys
+   are writable, and SECRET_KEYS are never echoed back in plaintext. Server-
+   level keys (PORT/TLS) are intentionally excluded — deploy-time only. */
+const CONFIG_KEYS = ['NOTE_BASE_URL', 'NOTE_USER', 'NOTE_PASS', 'NOTE_REGISTER',
+    'DEX_API_BASE', 'WATCH_SYMBOLS', 'WATCH_INTERVAL', 'WATCH_HORIZON',
+    'WATCH_LIVE', 'WATCH_WEBHOOK', 'WATCH_CONFIRM', 'WATCH_MAX_USD', 'WATCH_ACTIONS', 'WATCH_SECRET'];
+const SECRET_KEYS = new Set(['NOTE_PASS', 'WATCH_SECRET', 'WATCH_CONFIRM']);
+function parseEnv() {
+    const out = {};
+    try {
+        for (let line of fs.readFileSync(ENV_FILE, 'utf8').split('\n')) {
+            line = line.trim();
+            if (!line || line[0] === '#') continue;
+            if (line.startsWith('export ')) line = line.slice(7).trim();
+            const eq = line.indexOf('='); if (eq < 0) continue;
+            let v = line.slice(eq + 1).trim();
+            if (v.length >= 2 && ((v[0] === '"' && v.endsWith('"')) || (v[0] === "'" && v.endsWith("'")))) v = v.slice(1, -1);
+            out[line.slice(0, eq).trim()] = v;
+        }
+    } catch (e) {}
+    return out;
+}
+function writeEnv(map) {
+    const esc = v => /[\s#"'=]/.test(v) ? JSON.stringify(v) : v; // boşluk/özel karakter → tırnakla
+    const lines = ['# Managed by the in-app Settings panel. Copy .env.example for the full annotated template.',
+        '# The real shell environment always overrides this file.', ''];
+    for (const k of Object.keys(map)) if (map[k] !== '' && map[k] != null) lines.push(k + '=' + esc(String(map[k])));
+    const tmp = ENV_FILE + '.tmp';
+    fs.writeFileSync(tmp, lines.join('\n') + '\n', { mode: 0o600 });
+    fs.renameSync(tmp, ENV_FILE); // atomik
+}
 
 /* rota bazlı gövde sınırları */
 const LIMIT_DEFAULT = 2 * 1024 * 1024;      // 2 MB — auth, share meta, versiyon
@@ -287,6 +322,43 @@ async function handleAPI(req, res, parts) {
     if (mutating && req.headers['x-csrf'] !== session.csrf) {
         audit('csrf_reject', { uid, ip, path: req.url });
         return sendJSON(res, 403, { error: 'CSRF validation failed' });
+    }
+
+    /* -------- API/config: kullanıcı tarayıcıdan kendi anahtarlarını girer,
+       yerel .env'e yazılır. Sırlar okurken maskelenir; boş bırakılan sır
+       mevcut değeri korur. Yalnız beyaz-listedeki anahtarlar yazılabilir. */
+    if (resource === 'config') {
+        const cur = parseEnv();
+        if (req.method === 'GET') {
+            const values = {}, secretsSet = {};
+            for (const k of CONFIG_KEYS) {
+                if (SECRET_KEYS.has(k)) { secretsSet[k] = !!cur[k]; values[k] = ''; }
+                else values[k] = cur[k] || '';
+            }
+            return sendJSON(res, 200, { values, secretsSet, path: '.env' });
+        }
+        if (req.method === 'PUT' || req.method === 'POST') {
+            const b = await readBody(req, LIMIT_DEFAULT);
+            const inp = b.config || {};
+            if (typeof inp !== 'object' || Array.isArray(inp)) return sendJSON(res, 400, { error: 'config object required' });
+            const merged = Object.assign({}, cur), written = [];
+            for (const k of CONFIG_KEYS) {
+                if (!(k in inp)) continue;
+                let v = inp[k];
+                if (v == null) v = '';
+                if (typeof v !== 'string') v = String(v);
+                if (v.length > 1024) return sendJSON(res, 400, { error: k + ' too long' });
+                if (/[\r\n]/.test(v)) return sendJSON(res, 400, { error: k + ' must not contain newlines' });
+                if (SECRET_KEYS.has(k) && v === '') continue; // boş sır: mevcut değeri koru
+                if (v === '') delete merged[k]; else merged[k] = v;
+                written.push(k);
+            }
+            try { writeEnv(merged); } catch (e) { return sendJSON(res, 500, { error: 'could not write .env: ' + e.message }); }
+            audit('config_write', { uid, ip, keys: written });
+            return sendJSON(res, 200, { ok: true, written,
+                note: 'Saved to .env. The MCP bridge and strategy-watch read it on their next launch; server-level changes need a restart.' });
+        }
+        return sendJSON(res, 405, { error: 'method not allowed' });
     }
 
     if (resource === 'notebooks') {
