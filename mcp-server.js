@@ -15,6 +15,7 @@
    Ya da depodaki .mcp.json otomatik algılanır (env değişkenlerini ayarla).
    ============================================================================= */
 'use strict';
+require('./env'); // .env → process.env (see .env.example)
 
 const BASE = (process.env.NOTE_BASE_URL || 'http://localhost:3000').replace(/\/+$/, '');
 const USER = process.env.NOTE_USER || '';

@@ -66,6 +66,16 @@ Open **http://localhost:3000** — that's it. **Zero dependencies.**
 
 > 💡 Data is auto-saved to `./data/db.json`. All asset paths are relative, so `public/` also runs as a pure static site (offline, IndexedDB) — see **Hosting** below.
 
+### ⚙️ Configuration — one file, all keys blank
+
+Every setting (server, MCP account, market data, trading, live-execution webhook) lives in **one place**: copy [`.env.example`](.env.example) to `.env` and fill in only what you need. It's git-ignored, so your keys never get committed, and everything is blank by default (built-in defaults apply):
+
+```bash
+cp .env.example .env      # then edit .env in any text editor
+```
+
+No values are required to try the app — `node server.js` runs with `.env` blank or absent. The real shell environment always overrides the file.
+
 ---
 
 ## 🌐 Hosting — Static (GitHub Pages) vs. Full (Node)
@@ -168,6 +178,8 @@ GET    /api/health                                    → { ok, name, auth }
 
 ```
 ├── server.js              # Zero-dependency Node.js backend + static file server
+├── .env.example           # ← copy to .env and fill in your keys (all blank by default)
+├── env.js                 # zero-dependency .env loader
 ├── mcp-server.js          # MCP bridge (stdio) — lets Claude read & write your notes
 ├── strategy-watch.js      # Sleeping-analyst watcher (journal + optional live webhook)
 ├── .github/workflows/
@@ -273,6 +285,7 @@ The renderer keeps itself synchronized with whatever screen it lands on:
 | `NOTE_BASE_URL` | `http://localhost:3000` | *(MCP)* Site URL the MCP bridge connects to |
 | `NOTE_USER` / `NOTE_PASS` | — | *(MCP)* Account credentials for the MCP bridge |
 | `NOTE_REGISTER` | — | *(MCP)* Set to `1` to auto-register the account on first run |
+| *(all of the above)* | — | Also settable via `.env` — copy `.env.example`, fill in, done |
 | `DEX_API_BASE` | `https://api.dexscreener.com` | *(MCP)* Market data API base (mock/self-host override) |
 
 ---

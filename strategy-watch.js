@@ -37,6 +37,7 @@
      NOTE_BASE_URL / NOTE_USER / NOTE_PASS / NOTE_REGISTER / DEX_API_BASE
    ============================================================================= */
 'use strict';
+require('./env'); // .env → process.env (see .env.example)
 const { spawn } = require('child_process');
 const path = require('path');
 

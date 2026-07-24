@@ -17,6 +17,7 @@
    • İz:     data/audit.log — giriş/başarısız giriş/kilit olayları
    ============================================================================= */
 'use strict';
+require('./env'); // .env → process.env (see .env.example)
 const http = require('http');
 const https = require('https');
 const fs = require('fs');
