@@ -61,14 +61,30 @@ export function init(cvs){
         orbit.targetR=THREE.MathUtils.clamp(orbit.targetR + e.deltaY*R*0.002, R*SPHERE_K*2.5, R*3.2);
     },{passive:false});
 
-    let tstart=null;
-    cvs.addEventListener('touchstart', e=>{ const t=e.touches[0]; tstart={x:t.clientX,y:t.clientY}; prev={x:t.clientX,y:t.clientY}; },{passive:true});
-    cvs.addEventListener('touchmove', e=>{ const t=e.touches[0];
+    let tstart=null, pinchD=null;
+    const pdist=e=>Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY);
+    cvs.addEventListener('touchstart', e=>{
+        if(e.touches.length===2){ pinchD=pdist(e); tstart=null; return; }
+        const t=e.touches[0]; tstart={x:t.clientX,y:t.clientY}; prev={x:t.clientX,y:t.clientY}; },{passive:true});
+    cvs.addEventListener('touchmove', e=>{
+        if(e.touches.length===2){ /* iki parmak kıstır: odak modunda yakınlaş/uzaklaş */
+            e.preventDefault();
+            const d=pdist(e);
+            if(pinchD!=null && State.mode==='focus'){
+                const R=worldOf(State.openNode||{parent:null}).radius;
+                orbit.targetR=THREE.MathUtils.clamp(orbit.targetR+(pinchD-d)*R*0.006, R*SPHERE_K*2.5, R*3.2);
+            }
+            pinchD=d; return;
+        }
+        if(pinchD!=null) return; // kıstırmadan tek parmağa düşüş: bakışı sıçratma
+        const t=e.touches[0];
         const dx=(t.clientX-prev.x), dy=(t.clientY-prev.y);
         if(State.mode==='flight'){ lon+=dx*0.16; lat-=dy*0.16; lat=Math.max(-85,Math.min(85,lat)); }
         else{ orbit.lon+=dx*0.3; orbit.lat=Math.max(-80,Math.min(80,orbit.lat+dy*0.25)); }
-        prev={x:t.clientX,y:t.clientY}; },{passive:true});
-    cvs.addEventListener('touchend', e=>{ const t=e.changedTouches[0];
+        prev={x:t.clientX,y:t.clientY}; },{passive:false});
+    cvs.addEventListener('touchend', e=>{
+        if(!e.touches.length) pinchD=null; // tüm parmaklar kalkınca kıstırma biter
+        const t=e.changedTouches[0];
         if(tstart && Math.hypot(t.clientX-tstart.x,t.clientY-tstart.y)<8) onClick(t); tstart=null; });
 }
 

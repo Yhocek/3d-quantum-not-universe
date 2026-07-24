@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "not-evreni": {
+      "command": "node",
+      "args": ["mcp-server.js"],
+      "env": {
+        "NOTE_BASE_URL": "${NOTE_BASE_URL:-http://localhost:3000}",
+        "NOTE_USER": "${NOTE_USER:-}",
+        "NOTE_PASS": "${NOTE_PASS:-}",
+        "NOTE_REGISTER": "${NOTE_REGISTER:-0}"
+      }
+    }
+  }
+}

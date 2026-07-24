@@ -65,8 +65,9 @@ export function worldOf(n){
 let nodeIndex = new Map();
 export function rebuildIndex(){
     nodeIndex = new Map();
-    const root=currentRoot(); if(!root) return;
-    (function walk(n){ nodeIndex.set(n.id,n); filledSlots(n).forEach(i=>walk(n.slots[i])); })(root);
+    const root=currentRoot();
+    if(root) (function walk(n){ nodeIndex.set(n.id,n); filledSlots(n).forEach(i=>walk(n.slots[i])); })(root);
+    rebuildGlobalIndex(); // defterler arası bağlantı çözümü taze kalsın
 }
 export function nodeById(id){ return nodeIndex.get(id)||null; }
 
@@ -75,7 +76,7 @@ export function nodeById(id){ return nodeIndex.get(id)||null; }
 export function toStd(n, depth=0){
     const kids = filledSlots(n).map(i=>toStd(n.slots[i], depth+1));
     return {
-        id:n.id, label:n.title||'isimsiz',
+        id:n.id, label:n.title||'untitled',
         type: depth===0?'macro_goal':(kids.length?'action':'micro_habit'),
         size: Math.max(5-2*depth,1),
         slot: n.slotIndex==null?null:n.slotIndex+1,
@@ -180,7 +181,7 @@ function idbGet(id){
 }
 /* yeni varlık kaydet → {assetId,...} referansı döner */
 export async function saveAsset({name, dataURL, aspect=null, size=null}){
-    if(!safeDataURL(dataURL)) throw new Error('desteklenmeyen dosya türü');
+    if(!safeDataURL(dataURL)) throw new Error('unsupported file type');
     const rec={id:genId('a'), name, dataURL, aspect, size};
     assetCache.set(rec.id, rec);
     idbPut(rec).catch(()=>{});
@@ -204,11 +205,15 @@ export async function resolveAsset(id){
 
 /* =============================================================================
    API İSTEMCİSİ + OTOMATİK KAYIT
+   API tabanı dokümana göre çözülür: kökten sunulduğunda (node server.js) →
+   "/api/", alt-dizinden (GitHub Pages user.github.io/repo/) → "/repo/api/"
+   (backend yoksa 404 → sorunsuz çevrimdışı moda düşer). Konumdan bağımsız.
    ============================================================================= */
+export const API_BASE = new URL('api/', document.baseURI).href;
 export async function api(path, opts={}){
     const headers=Object.assign({'Content-Type':'application/json'}, opts.headers||{});
     if(csrfToken && opts.method && opts.method!=='GET') headers['X-CSRF']=csrfToken;
-    const r=await fetch('/api/'+path, Object.assign({}, opts, {headers, credentials:'same-origin'}));
+    const r=await fetch(API_BASE+path, Object.assign({}, opts, {headers, credentials:'same-origin'}));
     if(r.status===401 && !path.startsWith('auth/')) onAuthNeeded();
     if(!r.ok){
         let msg='api '+r.status;
@@ -223,8 +228,10 @@ export function setAuthNeeded(fn){ onAuthNeeded=fn; }
 export async function probe(){
     try{
         const c=new AbortController(); setTimeout(()=>c.abort(),2000);
-        const r=await fetch('/api/health',{signal:c.signal});
-        State.serverOn=r.ok;
+        const r=await fetch(API_BASE+'health',{signal:c.signal});
+        /* statik host (Pages) /api/health için HTML 404 döndürebilir; JSON
+           değilse backend yok say → çevrimdışı yerel mod */
+        State.serverOn = r.ok && (r.headers.get('content-type')||'').includes('json');
     }catch(e){ State.serverOn=false; }
     if(State.serverOn){
         try{ const me=await api('auth/me'); State.user=me.user; csrfToken=me.csrf; }
@@ -252,29 +259,34 @@ let saveTimer=null;
 export function markDirty(){
     scheduleLocalPersist(); // her durumda yerel ayna: veri kaybı yok
     if(!State.serverOn || !State.user){ emitSave('off'); return; }
+    pendingSave=true;
     emitSave('dirty');
     clearTimeout(saveTimer);
     saveTimer=setTimeout(saveNow,1200);
 }
+let pendingSave=false;
+export function hasPendingSave(){ return pendingSave; }
 export async function saveNow(){
     const nb=currentNb();
     if(!State.serverOn || !State.user || !nb || !nb.id) return;
     emitSave('saving');
     try{
-        await api('notebooks/'+nb.id,{method:'PUT',body:JSON.stringify({name:nb.name, root:toStd(nb.root)})});
+        const r=await api('notebooks/'+nb.id,{method:'PUT',body:JSON.stringify({name:nb.name, root:toStd(nb.root)})});
+        nb.updatedAt=r.updatedAt||Date.now(); // canlı senkron kendi yazdığımızı geri çekmesin
+        pendingSave=false;
         emitSave('saved');
     }catch(e){ State.serverOn=false; emitSave('off'); }
 }
 
 /* ---------- tohum evren: ilk açılış boş olmasın, "Aha!" 15 saniyede gelsin ---------- */
 export function seedRoot(){
-    const root=makeNode(); root.title='Ana Merkez';
-    root.html='<h1>Zihin Haritam</h1><p>Yeşil parlayan yuvaya tıkla — ilk notun orada doğsun.</p>';
+    const root=makeNode(); root.title='Main Hub';
+    root.html='<h1>My Mind Map</h1><p>Click the glowing green slot — your first note is born there.</p>';
     const mk=(parent,slot,title,html)=>{ const n=makeNode(); n.title=title; n.html=html||'';
         n.parent=parent; n.slotIndex=slot; parent.slots[slot]=n; return n; };
-    const kilo=mk(root,11,'20 Kilo Vermek','<h2>Plan</h2><p>Yavaş ama kalıcı.</p>');
-    mk(kilo,0,'Merdiven kullan'); mk(kilo,2,'Şekeri bırak');
-    mk(root,20,'Projeler'); mk(root,29,'Okuma Listesi'); mk(root,38,'Fikirler ∞');
+    const kilo=mk(root,11,'Lose 20 Kilos','<h2>Plan</h2><p>Slow but lasting.</p>');
+    mk(kilo,0,'Take the stairs'); mk(kilo,2,'Quit sugar');
+    mk(root,20,'Projects'); mk(root,29,'Reading List'); mk(root,38,'Ideas ∞');
     return root;
 }
 
@@ -283,10 +295,10 @@ export async function loadNotebookList(){
     if(!State.serverOn) return;
     try{
         const list=await api('notebooks');
-        list.forEach(m=>State.notebooks.push({id:m.id, name:m.name, root:null}));
+        list.forEach(m=>State.notebooks.push({id:m.id, name:m.name, root:null, updatedAt:m.updatedAt||0}));
         if(!State.notebooks.length){
             const seed=seedRoot();
-            const created=await api('notebooks',{method:'POST',body:JSON.stringify({name:'Defter 1', root:toStd(seed)})});
+            const created=await api('notebooks',{method:'POST',body:JSON.stringify({name:'Notebook 1', root:toStd(seed)})});
             State.notebooks.push({id:created.id, name:created.name, root:seed});
         }
     }catch(e){ State.serverOn=false; emitSave('off'); }
@@ -295,13 +307,13 @@ export async function ensureRoot(nb){
     if(nb.root) return nb.root;
     if(State.serverOn && nb.id){
         try{ const full=await api('notebooks/'+nb.id); nb.root=fromStd(full.root); }
-        catch(e){ nb.root=makeNode(); nb.root.title='Ana Merkez'; }
-    } else { nb.root=makeNode(); nb.root.title='Ana Merkez'; }
+        catch(e){ nb.root=makeNode(); nb.root.title='Main Hub'; }
+    } else { nb.root=makeNode(); nb.root.title='Main Hub'; }
     return nb.root;
 }
 export async function createNotebook(name){
     const nb={id:null, name, root:makeNode()};
-    nb.root.title='Ana Merkez';
+    nb.root.title='Main Hub';
     if(State.serverOn){
         try{ const c=await api('notebooks',{method:'POST',body:JSON.stringify({name, root:toStd(nb.root)})});
              nb.id=c.id; }catch(e){}
@@ -387,9 +399,129 @@ export function linkNodes(a,b){
     markDirty();
     return true;
 }
-export function unlink(a,id){
-    a.links=a.links.filter(x=>x!==id);
-    const other=nodeById(id);
-    if(other) other.links=other.links.filter(x=>x!==a.id);
+export function unlink(a,ref){
+    a.links=a.links.filter(x=>x!==ref);
+    const r=resolveLink(ref);
+    if(r){
+        r.node.links=r.node.links.filter(x=>linkNodeId(x)!==a.id);
+        if(r.nbIndex!==State.nbIndex) saveOther(State.notebooks[r.nbIndex]);
+    }
     markDirty();
+}
+
+/* ============================================================================
+   OBSİDİYEN TARZI BEYİN AĞI — defterler arası bağlantılar + global grafik
+   Bağlantı biçimi: aynı defter → "nodeId" (eski biçim), defterler arası →
+   "nbKey:nodeId". nbKey = sunucu defter id'si ya da yerel localKey; sunucu
+   şeması değişmez (links: string ≤64). Tüm bağlantılar çift yönlüdür.
+   ============================================================================ */
+export function nbKey(nb){
+    if(nb.id) return nb.id;
+    if(!nb.localKey) nb.localKey=genId('nb');
+    return nb.localKey;
+}
+export const linkNodeId = l => l.includes(':') ? l.split(':').pop() : l;
+export async function ensureAllRoots(){
+    for(const nb of State.notebooks) await ensureRoot(nb);
+    rebuildGlobalIndex();
+}
+let globalIndex=new Map(); // nodeId → {node, nbIndex} (yüklü tüm defterler)
+export function rebuildGlobalIndex(){
+    globalIndex=new Map();
+    State.notebooks.forEach((nb,i)=>{
+        if(!nb.root) return;
+        (function walk(n){ globalIndex.set(n.id,{node:n,nbIndex:i}); filledSlots(n).forEach(k=>walk(n.slots[k])); })(nb.root);
+    });
+}
+/* "nbKey:nodeId" ya da "nodeId" → {node, nbIndex} | null */
+export function resolveLink(l){
+    const nid=linkNodeId(l);
+    const local=nodeById(nid);
+    if(local) return {node:local, nbIndex:State.nbIndex};
+    return globalIndex.get(nid)||null;
+}
+/* a (geçerli defter) ⇄ b (nbB defteri) — defterler arası solucan deliği */
+export function linkNodesX(a, b, nbB){
+    if(!a||!b||a===b) return false;
+    const nbA=currentNb();
+    const refB = nbB===nbA ? b.id : nbKey(nbB)+':'+b.id;
+    const refA = nbB===nbA ? a.id : nbKey(nbA)+':'+a.id;
+    if(!a.links.includes(refB)) a.links.push(refB);
+    if(!b.links.includes(refA)) b.links.push(refA);
+    rebuildGlobalIndex();
+    markDirty();
+    if(nbB!==nbA) saveOther(nbB);
+    return true;
+}
+/* geçerli olmayan bir defteri kalıcıla (IndexedDB aynası + sunucu) */
+export async function saveOther(nb){
+    if(!nb.localKey) nb.localKey = nb.id ? ('srv-'+nb.id) : genId('nb');
+    try{ await idbPutTree({key:nb.localKey, id:nb.id||null, name:nb.name, root:toStd(nb.root), ts:Date.now()}); }catch(e){}
+    if(State.serverOn && State.user && nb.id){
+        try{ await api('notebooks/'+nb.id,{method:'PUT',body:JSON.stringify({name:nb.name, root:toStd(nb.root)})}); }catch(e){}
+    }
+}
+/* başlığa göre tüm defterlerde not ara ([[wikilink]] hedef çözümü) */
+export function nodeByTitle(title, exclude){
+    const q=String(title).trim().toLowerCase();
+    if(!q) return null;
+    let hit=null;
+    State.notebooks.forEach((nb,i)=>{
+        if(hit||!nb.root) return;
+        (function walk(n){
+            if(hit) return;
+            if(n!==exclude && (n.title||'').trim().toLowerCase()===q){ hit={node:n, nbIndex:i}; return; }
+            filledSlots(n).forEach(k=>walk(n.slots[k]));
+        })(nb.root);
+    });
+    return hit;
+}
+/* beyin grafiği: tüm defterler tek grafikte — düğümler + ağaç/solucan kenarları */
+export function brainGraph(cap=900){
+    const nodes=[], edges=[], idx=new Map();
+    State.notebooks.forEach((nb,i)=>{
+        if(!nb.root) return;
+        (function walk(n,parent,d){
+            if(nodes.length>=cap) return;
+            const me=nodes.length;
+            idx.set(n.id, me);
+            nodes.push({node:n, nbIndex:i, deg:0, depth:d, isRoot:parent==null});
+            if(parent!=null){ edges.push({a:parent,b:me,type:'tree'}); nodes[parent].deg++; nodes[me].deg++; }
+            filledSlots(n).forEach(k=>walk(n.slots[k], me, d+1));
+        })(nb.root, null, 0);
+    });
+    /* ORTAK KÜMELER: farklı defterlerde aynı başlık YOLUNA sahip dallanan
+       düğümler (örn. her iki defterde de "Dersler/Matematik") ikiz sayılır;
+       ikiz kenarının ağırlığı paylaşılan çocuk başlığı sayısıyla artar →
+       çizim kalınlığı bundan türetilir. */
+    const byPath=new Map();
+    nodes.forEach((rec,i)=>{
+        if(rec.isRoot || !filledSlots(rec.node).length) return;
+        const parts=[]; let n=rec.node;
+        while(n && n.parent){ parts.unshift((n.title||'').trim().toLowerCase()); n=n.parent; }
+        if(parts.some(t=>!t)) return; // adsız düzey varsa eşleşme yok
+        const key=parts.join('/');
+        (byPath.get(key)||byPath.set(key,[]).get(key)).push(i);
+    });
+    byPath.forEach(list=>{
+        for(let x=0;x<list.length;x++) for(let y=x+1;y<list.length;y++){
+            const A=nodes[list[x]], B=nodes[list[y]];
+            if(A.nbIndex===B.nbIndex) continue;
+            const ta=new Set(filledSlots(A.node).map(k=>(A.node.slots[k].title||'').trim().toLowerCase()).filter(Boolean));
+            let shared=0;
+            filledSlots(B.node).forEach(k=>{ if(ta.has((B.node.slots[k].title||'').trim().toLowerCase())) shared++; });
+            edges.push({a:list[x], b:list[y], type:'twin', w:1+shared});
+            A.deg++; B.deg++;
+        }
+    });
+    nodes.forEach((rec,ai)=>{ // solucan delikleri (her çift bir kez)
+        (rec.node.links||[]).forEach(l=>{
+            const bi=idx.get(linkNodeId(l));
+            if(bi!=null && bi>ai){
+                edges.push({a:ai,b:bi,type:nodes[bi].nbIndex!==rec.nbIndex?'cross':'worm'});
+                nodes[ai].deg++; nodes[bi].deg++;
+            }
+        });
+    });
+    return {nodes, edges, capped:nodes.length>=cap};
 }

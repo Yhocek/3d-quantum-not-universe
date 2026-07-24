@@ -3,9 +3,19 @@
         --bg:#020208; --panel:rgba(4,4,14,.94);
         --red:#ff4757; --cyan:#00d2ff; --amber:#ffa502; --green:#2ed573;
         --dim:#a4b0be; --line:#2f3542; --ink:#dfe4ea;
+        --text:#fff; --input:#00000066; --input2:#00000055;
+        --hover:#0a0a18; --dot:#14141f; --faint:#3d4452; --veil:rgba(2,2,8,.85);
+    }
+    /* light theme: same variable contract, inverted values */
+    :root[data-theme="light"]{
+        --bg:#eef1f7; --panel:rgba(250,251,254,.95);
+        --red:#d63447; --cyan:#0079b8; --amber:#a86a00; --green:#1c8a4b;
+        --dim:#4a5568; --line:#9aa5b5; --ink:#242b38;
+        --text:#141a24; --input:#ffffffb0; --input2:#ffffff90;
+        --hover:#e4e9f2; --dot:#d5dbe6; --faint:#8b95a6; --veil:rgba(233,238,246,.88);
     }
     *{box-sizing:border-box}
-    body{margin:0;overflow:hidden;background:var(--bg);color:#fff;
+    body{margin:0;overflow:hidden;background:var(--bg);color:var(--text);
         font-family:'Courier New',Courier,monospace;-webkit-user-select:none;user-select:none}
     canvas{display:block}
     #gl{cursor:grab}
@@ -20,11 +30,11 @@
     /* ---------- SOL: HUD ---------- */
     #hud{top:14px;left:14px;max-width:302px;pointer-events:none}
     #hud .row{pointer-events:auto;display:flex;gap:6px;margin-top:8px;align-items:center}
-    #nb-select{flex:1;background:#00000066;border:1px dashed var(--line);color:var(--cyan);
+    #nb-select{flex:1;background:var(--input);border:1px dashed var(--line);color:var(--cyan);
         font-family:inherit;font-size:11px;padding:5px;outline:none;min-width:0}
     #hud .row button{padding:5px 8px;font-size:11px}
     #save-dot{font-size:10px;letter-spacing:.5px}
-    #depth-sel{background:#00000066;border:1px dashed var(--line);color:var(--dim);
+    #depth-sel{background:var(--input);border:1px dashed var(--line);color:var(--dim);
         font-family:inherit;font-size:10px;padding:3px;outline:none}
 
     #stats{bottom:14px;right:14px;border-color:var(--line);font-size:10px;pointer-events:none}
@@ -32,12 +42,13 @@
 
     /* ---------- SAĞ: NOT PANELİ (iPhone Notlar tarzı) ---------- */
     #note{top:14px;right:14px;width:330px;max-height:calc(100vh - 90px);
+        max-height:calc(100dvh - 90px); /* mobil: adres çubuğuyla senkron dinamik yükseklik */
         border-color:var(--cyan);pointer-events:auto;display:flex;flex-direction:column}
     #addr{font-size:11px;color:var(--amber);margin-bottom:6px;letter-spacing:1px;word-break:break-all}
     #addr .crumb{color:var(--cyan);cursor:pointer;border-bottom:1px dashed var(--cyan)}
     #addr .crumb:hover{color:#fff}
     #title-in{width:100%;background:transparent;border:none;border-bottom:1px dashed var(--line);
-        color:#fff;font-family:inherit;font-weight:bold;font-size:16px;padding:6px 2px;outline:none}
+        color:var(--text);font-family:inherit;font-weight:bold;font-size:16px;padding:6px 2px;outline:none}
     #title-in:focus{border-color:var(--cyan)}
 
     #fmt{display:flex;gap:6px;margin:8px 0 6px}
@@ -46,19 +57,19 @@
     #fmt button:hover{border-color:var(--cyan);color:var(--cyan)}
     #fmt .b1{font-weight:bold;font-size:13px} #fmt .b2{font-weight:bold;font-size:11px} #fmt .b3{font-size:11px}
 
-    #body-ed{min-height:100px;max-height:190px;overflow-y:auto;background:#00000055;
+    #body-ed{min-height:100px;max-height:190px;overflow-y:auto;background:var(--input2);
         border:1px dashed var(--line);padding:9px;outline:none;font-size:12px;color:var(--dim);line-height:1.5;
         -webkit-user-select:text;user-select:text}
     #body-ed:focus{border-color:var(--cyan)}
-    #body-ed h1{font-size:17px;color:#fff;margin:4px 0;font-weight:bold}
+    #body-ed h1{font-size:17px;color:var(--text);margin:4px 0;font-weight:bold}
     #body-ed h2{font-size:13px;color:var(--ink);margin:4px 0;font-weight:bold}
     #body-ed p{font-size:12px;color:var(--dim);margin:3px 0}
-    #body-ed:empty:before{content:'Gövde metni... (yukarıdan kalınlık seç)';color:#3d4452}
+    #body-ed:empty:before{content:'Body text... (pick a weight above) — [[Title]] creates a wormhole';color:var(--faint)}
 
     #attach-btns{display:flex;gap:6px;margin:8px 0 4px}
     #attach-btns button{flex:1;background:transparent;border:1px dashed var(--green);color:var(--green);
         padding:6px;font-family:inherit;font-size:11px;cursor:pointer}
-    #attach-btns button:hover{background:var(--green);color:#020208}
+    #attach-btns button:hover{background:var(--green);color:var(--bg)}
 
     .att-list{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0}
     .att-img{position:relative;width:52px;height:52px;border:1px dashed var(--line)}
@@ -72,7 +83,7 @@
 
     #sublist{overflow-y:auto;margin-top:6px;border-top:1px dashed var(--line);padding-top:6px}
     #sublist h4{margin:0 0 5px;font-size:11px;color:var(--red);text-transform:uppercase}
-    .sub{display:flex;align-items:center;gap:6px;font-size:11px;padding:3px 2px;border-bottom:1px dotted #14141f}
+    .sub{display:flex;align-items:center;gap:6px;font-size:11px;padding:3px 2px;border-bottom:1px dotted var(--dot)}
     .sub .num{color:var(--amber);min-width:52px}
     .sub .nm{color:var(--ink);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
     .sub .nm:hover{color:var(--cyan)}
@@ -81,7 +92,7 @@
     .sub .del{color:var(--red);cursor:pointer;border:1px dashed transparent;padding:1px 5px}
     .sub .del:hover{border-color:var(--red)}
     .sub .cnt{color:var(--line);font-size:10px}
-    #sublist .empty{color:#3d4452;font-size:11px}
+    #sublist .empty{color:var(--faint);font-size:11px}
 
     /* ---------- ALT BUTONLAR ---------- */
     .btnrow{position:absolute;bottom:14px;left:14px;display:flex;gap:8px;flex-wrap:wrap;max-width:calc(100vw - 260px)}
@@ -91,16 +102,16 @@
     button.ghost{background:transparent;border:2px dashed var(--line);color:var(--dim)}
     button.ghost:hover{border-color:var(--cyan);color:var(--cyan)}
     button.up{background:transparent;border:2px dashed var(--amber);color:var(--amber)}
-    button.up:hover{background:var(--amber);color:#020208}
+    button.up:hover{background:var(--amber);color:var(--bg)}
     button.share{background:transparent;border:2px dashed var(--green);color:var(--green)}
-    button.share:hover{background:var(--green);color:#020208}
+    button.share:hover{background:var(--green);color:var(--bg)}
 
     
     #quick{position:absolute;display:none;z-index:8;background:var(--panel);
         border:2px dashed var(--green);padding:10px;width:224px}
     #quick.open{display:block}
     #quick .q-addr{font-size:10px;color:var(--amber);margin-bottom:6px;letter-spacing:1px;word-break:break-all}
-    #quick input{width:100%;background:#00000055;border:1px dashed var(--line);color:#fff;
+    #quick input{width:100%;background:var(--input2);border:1px dashed var(--line);color:var(--text);
         font-family:inherit;font-size:12px;font-weight:bold;padding:6px;outline:none}
     #quick input:focus{border-color:var(--green)}
     #quick .q-row{display:flex;gap:5px;margin-top:7px}
@@ -132,6 +143,16 @@
         #note.force{display:flex;position:absolute;left:14px;right:14px;top:14px;width:auto;z-index:25}
         #note.force #note-close{display:block}
         #hud{max-width:calc(100vw - 28px)} .btnrow{max-width:calc(100vw - 28px)}
+        /* dokunmatik hedefler: parmakla vurulabilir boyut */
+        button{padding:11px 14px}
+        #modebar button,#fmt button,#attach-btns button{padding:9px 6px}
+    }
+    /* çentikli/kavisli kenarlı ekranlar: paneller güvenli alanla senkron */
+    @supports(top:max(0px)){
+        #hud{top:max(14px,env(safe-area-inset-top));left:max(14px,env(safe-area-inset-left))}
+        #note{top:max(14px,env(safe-area-inset-top));right:max(14px,env(safe-area-inset-right))}
+        .btnrow{bottom:max(14px,env(safe-area-inset-bottom));left:max(14px,env(safe-area-inset-left))}
+        #stats{bottom:max(14px,env(safe-area-inset-bottom));right:max(14px,env(safe-area-inset-right))}
     }
     @media (prefers-reduced-motion:reduce){ *{transition:none!important} }
 
@@ -142,23 +163,23 @@
 #modebar button.on{border-color:var(--cyan);color:var(--cyan)}
 #modebar button:hover{background:transparent;color:var(--cyan)}
 
-#search-in{width:100%;background:#00000066;border:1px dashed var(--line);color:#fff;
+#search-in{width:100%;background:var(--input);border:1px dashed var(--line);color:var(--text);
     font-family:inherit;font-size:11px;padding:6px;outline:none;margin-top:8px;pointer-events:auto}
 #search-in:focus{border-color:var(--amber)}
 #search-res{max-height:180px;overflow-y:auto;pointer-events:auto}
-.sr{display:flex;gap:6px;font-size:10px;padding:4px 2px;border-bottom:1px dotted #14141f;cursor:pointer;align-items:baseline}
-.sr:hover{background:#0a0a18}
+.sr{display:flex;gap:6px;font-size:10px;padding:4px 2px;border-bottom:1px dotted var(--dot);cursor:pointer;align-items:baseline}
+.sr:hover{background:var(--hover)}
 .sr .num{color:var(--amber);white-space:nowrap}
 .sr .t{color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sr .snip{color:#57606f;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
 
-#tunnel{position:fixed;inset:0;background:rgba(2,2,8,.85);z-index:28;display:none;
+#tunnel{position:fixed;inset:0;background:var(--veil);z-index:28;display:none;
     align-items:center;justify-content:center}
 #tunnel.open{display:flex}
 #tunnel .card{width:min(430px,92vw);max-height:80vh;display:flex;flex-direction:column;border-color:var(--amber)}
 #tunnel .card h2{color:var(--amber)}
 #tunnel-list{overflow-y:auto;margin:8px 0}
-.ver{display:flex;gap:8px;align-items:center;font-size:11px;padding:6px 2px;border-bottom:1px dotted #14141f}
+.ver{display:flex;gap:8px;align-items:center;font-size:11px;padding:6px 2px;border-bottom:1px dotted var(--dot)}
 .ver .ts{color:var(--ink);flex:1}
 .ver button{padding:4px 10px;font-size:10px}
 #tunnel .row{display:flex;gap:8px}
@@ -173,7 +194,7 @@
 #link-btns{display:flex;gap:6px;margin-top:6px}
 #link-btns button{flex:1;background:transparent;border:1px dashed #7d5fff;color:#a99bff;
     padding:5px;font-size:10px;font-weight:normal}
-#link-btns button:hover{background:#7d5fff;color:#020208}
+#link-btns button:hover{background:#7d5fff;color:var(--bg)}
 
 /* ---------- v5: UZAMSAL İÇERİK KARTLARI (alt merkezler + hızlı menü listeleri) ---------- */
 #subcard{position:absolute;display:none;z-index:8;background:var(--panel);
@@ -181,7 +202,7 @@
 #subcard.open{display:block}
 .sc-head{font-size:11px;margin-bottom:6px;word-break:break-word}
 .sc-addr{color:var(--amber);margin-right:6px;letter-spacing:1px}
-.sc-title{color:#fff;font-weight:bold}
+.sc-title{color:var(--text);font-weight:bold}
 .sc-sec{font-size:10px;line-height:1.9;margin:2px 0;color:var(--dim)}
 .sc-k{color:var(--cyan);margin-right:2px}
 .sc-item{color:var(--ink);border:1px dashed var(--line);padding:0 4px;margin:0 3px 3px 0;
@@ -189,7 +210,7 @@
     text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
 .sc-item:hover{border-color:var(--cyan);color:var(--cyan)}
 .sc-more{color:#57606f;margin-left:2px}
-.sc-empty{color:#3d4452}
+.sc-empty{color:var(--faint)}
 .sc-imgs{display:flex;gap:4px;margin:4px 0;flex-wrap:wrap;align-items:center}
 .sc-imgs img{width:34px;height:34px;object-fit:cover;border:1px dashed var(--line);cursor:pointer}
 .sc-imgs img:hover{border-color:var(--cyan)}
@@ -202,7 +223,7 @@
     display:none;background:var(--panel);border:2px dashed var(--green);color:var(--dim);
     padding:9px 16px;font-size:12px;max-width:min(560px,92vw);text-align:center}
 #onboard.show{display:block}
-#onboard b{color:#fff}
+#onboard b{color:var(--text)}
 #slot-callout{position:absolute;z-index:8;display:none;background:var(--panel);
     border:2px dashed var(--green);color:var(--green);font-size:11px;padding:6px 10px;
     pointer-events:none;white-space:nowrap;animation:cpulse 1.6s ease-in-out infinite}
@@ -210,8 +231,61 @@
 @keyframes cpulse{50%{border-color:#7dffb0;color:#7dffb0}}
 @media (prefers-reduced-motion:reduce){#slot-callout{animation:none}}
 
+/* ---------- v8: BEYİN GRAFİĞİ + DEFTERLER ARASI BAĞLANTI ---------- */
+#brain{position:fixed;inset:0;background:var(--bg);z-index:22;display:none}
+#brain.open{display:block}
+#brain-cv{position:absolute;inset:0;cursor:grab}
+#brain-cv.dragging{cursor:grabbing}
+#brain-bar{position:absolute;top:14px;left:14px;right:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+#brain-title{color:#ff5fd0;font-size:12px;background:var(--panel);
+    border:2px dashed var(--line);padding:8px 12px}
+#brain-in{flex:1;min-width:140px;max-width:320px;margin-right:auto;background:var(--input);
+    border:1px dashed var(--line);color:var(--text);font-family:inherit;font-size:12px;
+    padding:8px;outline:none}
+#brain-in:focus{border-color:#ff5fd0}
+
+#xlink{position:fixed;inset:0;background:var(--veil);z-index:30;display:none;
+    align-items:center;justify-content:center}
+#xlink.open{display:flex}
+#xlink .card{width:min(460px,92vw);max-height:80vh;display:flex;flex-direction:column;gap:8px;border-color:#ff5fd0}
+#xlink .card h2{color:#ff5fd0}
+#xlink-src{font-size:11px;color:var(--amber);margin:0}
+#xlink input{background:var(--input);border:1px dashed var(--line);color:var(--text);
+    font-family:inherit;font-size:12px;padding:8px;outline:none}
+#xlink input:focus{border-color:#ff5fd0}
+#xlink-res{overflow-y:auto;min-height:60px;max-height:46vh}
+.xr{display:flex;gap:8px;font-size:11px;padding:5px 2px;border-bottom:1px dotted var(--dot);
+    cursor:pointer;align-items:baseline}
+.xr:hover{background:var(--hover)}
+.xr .nb{color:#ff5fd0;white-space:nowrap;max-width:120px;overflow:hidden;text-overflow:ellipsis}
+.xr .num{color:var(--amber);white-space:nowrap}
+.xr .t{color:var(--ink);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sub .xnb{color:#ff5fd0;font-size:10px;max-width:90px;overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap}
+
+/* ---------- v9: API / AYARLAR (web'den .env düzenleme) ---------- */
+#settings{position:fixed;inset:0;background:var(--veil);z-index:32;display:none;
+    align-items:center;justify-content:center}
+#settings.open{display:flex}
+#settings .card{width:min(560px,94vw);max-height:86vh;display:flex;flex-direction:column;gap:8px;border-color:var(--amber)}
+#settings .card h2{color:var(--amber)}
+#settings code{color:var(--cyan)}
+#settings-body{overflow-y:auto;display:flex;flex-direction:column;gap:2px;padding-right:4px}
+.cfg-group{margin-top:8px;font-size:10px;color:var(--amber);text-transform:uppercase;letter-spacing:1px;
+    border-bottom:1px dashed var(--line);padding-bottom:3px}
+.cfg-row{display:flex;align-items:center;gap:8px;padding:3px 0}
+.cfg-row label{flex:0 0 150px;font-size:11px;color:var(--dim);text-align:right;word-break:break-all}
+.cfg-row input{flex:1;min-width:0;background:var(--input);border:1px dashed var(--line);color:var(--text);
+    font-family:inherit;font-size:11px;padding:6px;outline:none}
+.cfg-row input:focus{border-color:var(--amber)}
+.cfg-hint{font-size:9px;color:var(--faint);margin:0 0 5px 158px;line-height:1.3}
+#settings-msg{font-size:11px;min-height:14px;margin:0;color:var(--green)}
+#settings-msg.err{color:var(--red)}
+#settings-save{background:var(--amber);color:var(--bg)}
+#settings-save:hover{background:#ffb733}
+
 /* ---------- v7: KİMLİK KATMANI ---------- */
-#auth{position:fixed;inset:0;background:rgba(2,2,8,.88);z-index:40;display:none;
+#auth{position:fixed;inset:0;background:var(--veil);z-index:40;display:none;
     align-items:center;justify-content:center}
 #auth.show{display:flex}
 #auth .card{width:min(380px,92vw);border-color:var(--cyan);display:flex;flex-direction:column;gap:8px}
@@ -219,9 +293,9 @@
 #auth-tabs{display:flex;gap:0}
 #auth-tabs button{flex:1;background:transparent;border:2px dashed var(--line);color:var(--dim);padding:7px;font-size:11px}
 #auth-tabs button.on{border-color:var(--cyan);color:var(--cyan)}
-#auth input{background:#00000066;border:1px dashed var(--line);color:#fff;
+#auth input{background:var(--input);border:1px dashed var(--line);color:var(--text);
     font-family:inherit;font-size:13px;padding:9px;outline:none}
 #auth input:focus{border-color:var(--cyan)}
 #auth-err{color:var(--red);font-size:11px;min-height:14px;margin:0}
-#auth-submit{background:var(--cyan);color:#020208}
+#auth-submit{background:var(--cyan);color:var(--bg)}
 #auth-submit:hover{background:#5fe0ff}

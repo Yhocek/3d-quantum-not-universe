@@ -30,7 +30,21 @@
 | 💾 **Auto-Save** | Debounced sync to server (~1s); IndexedDB offline mirror for zero data loss |
 | 🔍 **Global Search** | Matching atoms glow white in 3D space; click result → fly to node |
 | ⏳ **Time Tunnel** | Version history with auto-snapshots (10min) + manual saves; session Ctrl+Z/Y |
-| 🗺️ **2D Reduction** | Radial tree map via pure Canvas 2D — GPU-free overview |
+| 🗺️ **2D Reduction** | Nested cluster–subcluster map via pure Canvas 2D — each note is a circle, children live inside it |
+| 🤖 **MCP Server** | Zero-dependency MCP bridge (`mcp-server.js`) — Claude (or any LLM) connects to your universe: read, search, add, update notes |
+| 🗂️ **Auto-Categorization** | Connected LLMs file conversations & code into a hierarchy (`Courses/Math/Calculus/Calculus1 Notes`) via `file_note` — the universe grows itself |
+| 🤖 **Live MCP Sync** | Notes written by Claude via MCP appear in the open browser within seconds — no reload |
+| 🔗 **Twin Clusters** | Clusters sharing the same title path across notebooks (`Courses/Math` in both) are auto-bonded with thick amber edges in the brain graph |
+| ⚙️ **In-App API Settings** | Paste your API keys/endpoints in the browser (⚙ API button) — saved to the server's local `.env`, secrets masked, no file editing |
+| 🎨 **Dark & Light Themes** | One-click toggle (◐), system-preference default, persisted; 3D scene, 2D map and brain graph all follow |
+| 🌍 **English UI** | All in-app text is English — use Google Translate for any language |
+| ⚡ **Performance-First** | Frustum + distance **culling**, idle frame limiter (60→30→15 fps), dirty-flag graph redraws, visibility-gated sync polling — GPU/CPU stay cool |
+| 🔮 **QGPR Forecasts** | Quantum Gaussian Process Regression bridges laggy feeds: fidelity quantum kernel + GPR predicts price 10-60 s ahead (hard-bounded) with a 95% CI |
+| 👁 **Sleeping Analyst** | `strategy-watch.js` evaluates your strategy against live data on a timer and journals a recommendation only when a branch *newly* fires — no LLM needed |
+| 📈 **Note-Driven Trading** | Your strategy notebook is a program: notes = nested functions, Claude walks it against live DexScreener data and logs which branch fired — recommendations only, you execute |
+| 🛣️ **CH Route Search** | Shared maps are searchable by LLMs with real **Contraction Hierarchies** — shortest routes over tree bonds + wormholes |
+| 🧠 **Brain Network** | Obsidian-style: cross-notebook wormholes, `[[wikilinks]]`, and a force-directed **brain graph** of all notebooks as one neural network |
+| 📐 **Screen Sync** | Adaptive FOV for ultrawide/curved monitors, DPR re-sync across monitors, dynamic viewport + safe-area + pinch-zoom on mobile |
 | 📸 **PNG Export** | Top-down orthographic 3D capture + 2D map download |
 | 🔄 **JSON Import/Export** | Portable standard schema (`id/label/type/size/children`) |
 | 🌐 **Shareable Links** | Share subtrees via short `?s=<code>` URLs |
@@ -51,7 +65,35 @@ node server.js
 
 Open **http://localhost:3000** — that's it. **Zero dependencies.**
 
-> 💡 Data is auto-saved to `./data/db.json`. The `public/index.html` also works standalone (open in browser) with JSON import/export only.
+> 💡 Data is auto-saved to `./data/db.json`. All asset paths are relative, so `public/` also runs as a pure static site (offline, IndexedDB) — see **Hosting** below.
+
+### ⚙️ Configuration — one file, all keys blank
+
+Every setting (server, MCP account, market data, trading, live-execution webhook) lives in **one place**: copy [`.env.example`](.env.example) to `.env` and fill in only what you need. It's git-ignored, so your keys never get committed, and everything is blank by default (built-in defaults apply):
+
+```bash
+cp .env.example .env      # then edit .env in any text editor
+```
+
+No values are required to try the app — `node server.js` runs with `.env` blank or absent. The real shell environment always overrides the file.
+
+**Prefer the browser?** Once the backend is running and you're signed in, click **⚙ API** in the bottom bar: paste your keys/endpoints into the grouped fields and hit **Save to .env** — the server writes them to its local `.env` for you (secrets are masked, blank-secret keeps the current value, only whitelisted keys are writable, and the endpoint requires login + CSRF). The MCP bridge and `strategy-watch.js` pick the changes up on their next launch; server-level keys need a restart.
+
+---
+
+## 🌐 Hosting — Static (GitHub Pages) vs. Full (Node)
+
+The frontend is location-independent (relative asset paths + `import.meta.url`), so it works both at a domain root and under a project subpath like `user.github.io/repo/`.
+
+| | **Static** (GitHub Pages, Netlify, any CDN) | **Full** (`node server.js` on a host) |
+|---|---|---|
+| 3D universe, notes, brain graph, 2D map, themes, JSON import/export | ✅ (offline, IndexedDB) | ✅ |
+| Accounts, server sync, sharing links, Time Tunnel versions | ❌ | ✅ |
+| MCP bridge (Claude), auto-categorization, trading tools | ❌ | ✅ |
+
+**GitHub Pages:** the included workflow (`.github/workflows/pages.yml`) deploys `public/` automatically. One-time: repo **Settings → Pages → Source: "GitHub Actions"**, then push. The app opens in offline local mode — no backend needed.
+
+**Full features:** run `node server.js` on any host that runs Node (a small VPS, Render, Railway, Fly.io…) and point the MCP bridge / browser at it. Accounts, sync, sharing and the Claude/trading tools all need this backend.
 
 ---
 
@@ -76,7 +118,7 @@ All user data is locked to individual accounts — no cross-user access is possi
 | Attack Vector | Protection |
 |---|---|
 | **CSRF** | Session-bound `X-CSRF` header required on all mutations |
-| **XSS** | Whitelist HTML sanitizer (strips all attributes); paste reduced to plain text; `data:text/html` uploads rejected; strict CSP (`script-src 'self'`, `object-src 'none'`) |
+| **XSS** | Whitelist HTML sanitizer (strips all attributes); paste reduced to plain text; `data:text/html` uploads rejected; strict CSP (`script-src 'self'` + auto-computed sha256 hash for the import map, `object-src 'none'`) |
 | **Brute Force** | Per user+IP lockout (8 failures → 15min lock); separate IP rate limits for login/register/asset/share |
 | **DoS** | Route-specific body limits (2/16/32 MB); tree validation (depth ≤12, nodes ≤50k, field lengths) |
 | **Prototype Pollution** | JSON reviver strips `__proto__`/`constructor`/`prototype` keys |
@@ -139,6 +181,13 @@ GET    /api/health                                    → { ok, name, auth }
 
 ```
 ├── server.js              # Zero-dependency Node.js backend + static file server
+├── .env.example           # ← copy to .env and fill in your keys (all blank by default)
+├── env.js                 # zero-dependency .env loader
+├── mcp-server.js          # MCP bridge (stdio) — lets Claude read & write your notes
+├── strategy-watch.js      # Sleeping-analyst watcher (journal + optional live webhook)
+├── .github/workflows/
+│   └── pages.yml          # Auto-deploy public/ to GitHub Pages (offline static build)
+├── .mcp.json              # Auto-discovered MCP config for Claude Code
 ├── verify.mjs             # Cross-module import/export + HTML ID consistency checker
 ├── package.json
 ├── .gitignore
@@ -174,6 +223,9 @@ GET    /api/health                                    → { ok, name, auth }
 | **Scroll** | Zoom |
 | **Ctrl+Z / Ctrl+Y** | Undo / Redo |
 | **Purple portal** | Quantum tunnel teleport |
+| **One-finger drag** 📱 | Look (flight) / Orbit (focus) |
+| **Tap** 📱 | Select atom / spawn note on empty slot |
+| **Two-finger pinch** 📱 | Zoom in/out (focus mode) |
 
 ---
 
@@ -195,6 +247,36 @@ The 54 slots are distributed across 7 latitude rings:
 
 ---
 
+## 🎨 Dark & Light Themes
+
+The ◐ button in the HUD toggles themes; the choice persists in `localStorage` and defaults to your system preference. The whole stack follows one variable contract: CSS custom properties for every panel, the Three.js scene (background, fog, star color, label colors) via `Engine.applyTheme()`, and both Canvas overlays (2D map, brain graph). On light theme the bloom threshold is raised automatically so the pale background doesn't glow.
+
+---
+
+## ⚡ Performance-First
+
+Priority: don't tire the machine. The renderer works hard only when you do:
+
+- **Frustum + distance culling** — one frustum is built per frame; labels and attachment sprites outside the view cone (or too far) are skipped entirely — no draw call, no opacity math. The stats panel shows the live culled count; press **K** to toggle culling on/off. The 2 instanced atom/slot meshes stay as 2 draw calls regardless.
+- **Idle frame limiter** — after 4 s without input the main loop drops to ~30 fps, after 60 s to ~15 fps; the first pointer/key event instantly restores full rate. Background tabs cost zero (rAF pauses).
+- **Dirty-flag graph drawing** — the brain graph runs its force layout for a fixed number of iterations, then redraws only on pan/zoom/hover/search changes instead of every frame.
+- **Visibility-gated sync** — the 6 s MCP live-sync poll skips hidden tabs, pending local saves, and active typing.
+- **Batching as before** — 2 InstancedMeshes for all atoms/slots, 1 draw call for bonds; the CH index and share caches are built once and reused.
+
+---
+
+## 📐 Screen Sync — Mobile & Curved/Ultrawide Monitors
+
+The renderer keeps itself synchronized with whatever screen it lands on:
+
+- **Adaptive FOV** — vertical FOV is derived from the screen's aspect ratio so the *horizontal* field of view stays in the 60–105° comfort band: no fisheye edge distortion on 21:9 / 32:9 curved monitors, no tunnel vision on portrait phones. Standard 16:9 screens keep the classic 70°.
+- **DPR re-sync** — dragging the window to a monitor with a different pixel density (external curved display, Retina laptop) re-applies `setPixelRatio` automatically via a self-re-arming `resolution` media query.
+- **Unified resize pipeline** — `resize`, `orientationchange`, and `visualViewport` (mobile URL-bar show/hide) all funnel into one handler that updates camera, renderer, and bloom composer together.
+- **Mobile viewport** — `100dvh` panel heights track the dynamic browser chrome; `viewport-fit=cover` + `env(safe-area-inset-*)` keep panels clear of notches and curved screen edges; touch targets grow on small screens.
+- **Touch controls** — one-finger drag to look/orbit, tap to select or spawn a note, two-finger pinch to zoom in focus mode.
+
+---
+
 ## 🔧 Configuration
 
 | Environment Variable | Default | Description |
@@ -203,6 +285,132 @@ The 54 slots are distributed across 7 latitude rings:
 | `TLS_KEY` | — | Path to TLS private key (enables HTTPS) |
 | `TLS_CERT` | — | Path to TLS certificate |
 | `COOKIE_SECURE` | — | Set to `1` for Secure cookies behind reverse proxy |
+| `NOTE_BASE_URL` | `http://localhost:3000` | *(MCP)* Site URL the MCP bridge connects to |
+| `NOTE_USER` / `NOTE_PASS` | — | *(MCP)* Account credentials for the MCP bridge |
+| `NOTE_REGISTER` | — | *(MCP)* Set to `1` to auto-register the account on first run |
+| *(all of the above)* | — | Also settable via `.env` — copy `.env.example`, fill in, done |
+| `DEX_API_BASE` | `https://api.dexscreener.com` | *(MCP)* Market data API base (mock/self-host override) |
+
+---
+
+## 🤖 MCP — Connect Claude to Your Universe
+
+`mcp-server.js` is a zero-dependency [MCP](https://modelcontextprotocol.io) server (stdio transport) that bridges Claude to the running site. Claude can list notebooks, read the tree outline, read/search notes, add/update/delete notes, create notebooks, and mint share links — all through your account, with the same auth + CSRF protections as the browser.
+
+```bash
+# 1. Start the site
+node server.js
+
+# 2. Register the MCP server with Claude Code
+claude mcp add not-evreni \
+  -e NOTE_BASE_URL=http://localhost:3000 \
+  -e NOTE_USER=your-username \
+  -e NOTE_PASS=your-password \
+  -- node /path/to/3d-quantum-not-universe/mcp-server.js
+```
+
+Working inside this repo? Claude Code auto-discovers `.mcp.json` — just export `NOTE_USER` / `NOTE_PASS` in your environment. Set `NOTE_REGISTER=1` to auto-create the account on first run.
+
+| Tool | Description |
+|---|---|
+| `list_notebooks` | Notebooks with id, name, last update |
+| `get_outline` | Addressed text outline of a (sub)tree — addresses like `0.12.3` |
+| `read_note` | Title, body text/html, attachments, children of a note |
+| `add_note` | New note under a parent (first free slot, or explicit `slot` 1-54) |
+| `update_note` | Change title and/or body (whitelist-sanitized HTML) |
+| `delete_note` | Remove a note and its subtree (root is protected) |
+| `search_notes` | Full-text search over titles + bodies with snippets |
+| `create_notebook` | New empty notebook |
+| `create_share_link` | Public share URL for a subtree |
+| `file_note` | **Auto-categorization**: files a note under a category path, creating missing levels |
+| `link_notes` | Bidirectional wormhole between two notes — **cross-notebook** with `target_notebook_id` |
+| `get_market` | Live market data from the public DexScreener API (price, Δ%, volume, liquidity) |
+| `read_strategy` | Strategy notebook as a nested-function view — bodies are condition/action lines |
+| `log_trade_decision` | Files a recommendation into `Trade Journal/<SYMBOL>` + wormhole to the fired node |
+| `predict_market` | **QGPR** price forecast 10-60 s ahead (strict bounds) with 95% confidence interval |
+| `evaluate_strategy` | Deterministic walk of the strategy tree vs. live data — returns which branches fired + actions |
+| `read_share` | Read any public shared map (`?s=...` URL or id) — no login needed |
+| `search_share` | Search a shared map; routes computed with **Contraction Hierarchies** |
+
+### 🗂️ Auto-Categorization — the universe grows itself
+
+The MCP server ships `instructions` that tell any connected LLM to file every noteworthy conversation, code solution, or learned fact with `file_note` under a hierarchical category path:
+
+```
+file_note(category_path: "Courses/Math/Calculus/Calculus1 Notes",
+          title: "Limit definition", html: "<p>epsilon-delta…</p>")
+```
+
+Missing category nodes are created on the fly; existing ones are matched case-insensitively and reused, so repeated sessions keep building the *same* tree instead of duplicating branches. Everything lands in the **"Claude Universe"** notebook by default (override with `notebook`). The result: over time your conversations self-organize into a giant navigable 3D universe — `Courses → Math → Calculus → Calculus1 Notes` — while manual editing in the browser keeps working exactly as before; the LLM is told to respect the structure you shape by hand. And it is **live**: the browser polls `updatedAt` stamps every 6 s (only while the tab is visible and you are not mid-edit), so notes Claude writes appear in the open 3D view within seconds.
+
+### 📈 Note-Driven Trading — Strategy as Nested Functions
+
+Keep a notebook named **Strategy** whose notes read like a program — every note is a function, its body lines are conditions and actions, its children are sub-functions:
+
+```
+0.1  Trend Following()
+   | IF 24h change > +5% AND 24h volume > $1M THEN descend
+  0.1.1  Breakout()
+     | IF 1h change > +2% THEN ACTION: buy small position, stop-loss -3%
+  0.1.2  Pullback()
+     | IF 1h change < -1% while 24h still > +5% THEN ACTION: wait for support retest
+0.2  Mean Reversion()
+   | IF 24h change < -8% THEN descend
+```
+
+Claude (via MCP) then acts as the interpreter, Obsidian + Claude style:
+
+1. `read_strategy` — loads the tree in the nested-function view above.
+2. `get_market("SOL/USDC")` — pulls live price / Δ% / volume / liquidity / buy-sell counts from the **public DexScreener API** (read-only, no key; override with `DEX_API_BASE`).
+2b. `predict_market(query, horizon_seconds)` — market feeds can lag, so this bridges the gap with **Quantum Gaussian Process Regression**: the live price is sampled ~1.5 s apart (recent history is reused), then a GPR runs on a **fidelity quantum kernel** `k(x,x′)=∏ⱼcos²(ωⱼ·Δt/2)` — the exact closed form of a 4-qubit angle-encoding product feature map, simulated classically — solved via Cholesky, returning the predicted price **plus a 95% confidence interval**. The horizon is user-set and **strictly bounded to 10–60 seconds**: anything below 10 s or above 60 s is rejected, and forecasts far beyond the sampling window are flagged as wide-uncertainty.
+3. Claude walks the tree **top-down like a call stack**, descending only into branches whose written conditions match the data, and reports which sub-function fired and what it prescribes.
+4. `log_trade_decision` — the conclusion lands in `Trade Journal/<SYMBOL>` with route, reasoning and market snapshot, **wormhole-linked to the strategy node that fired** — so on the brain graph you literally see which parts of your strategy have been firing.
+
+### 👁 Sleeping Analyst — hands-off, no LLM required
+
+`evaluate_strategy` is **deterministic** — it parses your `IF <metric> <op> <value> [AND …] THEN …` lines and fires the branches whose conditions all hold, no language model in the loop. `strategy-watch.js` drives it on a timer over the MCP server (reusing its auth, QGPR and journalling):
+
+```bash
+NOTE_USER=you NOTE_PASS=... \
+WATCH_SYMBOLS="SOL/USDC,ETH/USDC" WATCH_INTERVAL=60 WATCH_HORIZON=30 \
+node strategy-watch.js
+```
+
+Every `WATCH_INTERVAL` seconds it evaluates each symbol and logs a recommendation to `Trade Journal/<SYMBOL>` — but **edge-triggered**: only when a branch *newly* fires (it won't re-journal the same fired branch until it stops firing and fires again), so no spam. Metrics understood: `price`, `change 5m/1h/6h/24h`, `volume 24h`, `liquidity`, `buys/sells 24h`, and `predicted change` (QGPR, when `WATCH_HORIZON` is set to 10-60). Unparsable conditions never fire (fail-safe). It places no orders — you still execute manually.
+
+**Live mode (bring your own execution endpoint).** Set `WATCH_LIVE=1` and the watcher additionally POSTs each fired decision to **your own** HTTPS webhook (`WATCH_WEBHOOK`) — which holds your broker/exchange keys and decides what to actually do. This project ships **no credentials and integrates no exchange directly**; execution lives entirely on your endpoint.
+
+```bash
+WATCH_LIVE=1 WATCH_WEBHOOK=https://your-host/exec WATCH_CONFIRM=I-UNDERSTAND \
+WATCH_MAX_USD=25 WATCH_ACTIONS=buy,sell,reduce WATCH_SECRET=... \
+node strategy-watch.js
+```
+
+Guardrails: live is **dry-run** (logs "would POST", sends nothing) unless you also set `WATCH_CONFIRM=I-UNDERSTAND` *and* an `https://` webhook; each dispatch is capped to `WATCH_MAX_USD`; only `WATCH_ACTIONS` are sent; an optional `WATCH_SECRET` bearer token authenticates to your endpoint; the payload carries a `dryRun` flag your endpoint should honor. Autonomous trading is risky and entirely your responsibility — **not financial advice.**
+
+> ⚠️ **Recommendations only.** This bridge never places orders and holds no exchange or brokerage credentials — TradingView and Robinhood offer no official public trading APIs, and unofficial ones risk your account. You review each journal entry and execute manually on your platform. Nothing here is financial advice; strategies fire exactly as *you* wrote them.
+
+### 🛣️ Contraction Hierarchies — finding things in shared maps
+
+When someone shares a map with you (`?s=...` link), a connected LLM can search it without any account via `search_share`. Under the hood the note graph — tree bonds **plus quantum wormholes** — is preprocessed with a real Contraction Hierarchies implementation (importance-ordered node contraction with witness searches, shortcut edges, bidirectional upward Dijkstra, shortcut unpacking). Each search hit comes back with the shortest route from the map's focus (or any `from_address`) to the target, with wormhole hops marked:
+
+```
+0 (Kök) → 0.1 (Kestirme Rafı) 🕳→ 0.2.1.1.1 (Calculus1 Notları)   · 2 hops, 1 wormhole
+```
+
+— two hops through a wormhole instead of four down the tree. The CH index is built once per share and cached.
+
+### 🧠 Obsidian-Style Brain Network
+
+Notebooks are no longer isolated universes — they weave into one multi-dimensional neural network, the way an [Obsidian](https://obsidian.md) vault does:
+
+- **Cross-notebook wormholes** — the note panel's *"🧠 Link Across Notebooks"* button opens a picker that searches every notebook; one click creates a bidirectional link. In 3D, cross-notebook links appear as **magenta portals**: click one and you teleport into the other notebook, straight to the target note. Link format is `notebookId:nodeId` (≤64 chars), so the server schema is untouched.
+- **`[[Wikilinks]]`** — type `[[Projeler]]` anywhere in a note body; on blur, every `[[title]]` that matches an existing note (in *any* notebook) automatically becomes a wormhole. The body text stays as you wrote it — the graph grows underneath.
+- **🧠 Brain graph view** — the BRAIN button renders every notebook in a single force-directed graph (pure Canvas 2D): node color = notebook, node size **shrinks with depth** (fractal silhouette), faint thin edges = tree bonds, thick purple = wormholes, thick dashed magenta = cross-notebook bridges — linked clusters are always visibly heavier than unlinked ones. Wheel to zoom, drag to pan, click a node to jump there in 3D — across notebooks if needed.
+- **Twin clusters** — clusters with the same title path in different notebooks (e.g. `Courses` and `Courses/Math` existing in two notebooks) are automatically bonded with **amber edges whose thickness grows with the number of shared child titles**. The shape of your knowledge emerges by itself.
+- **In-brain search** — the search bar inside the graph highlights matching nodes and dims the rest; Enter jumps straight to the first match.
+- **Links panel** — each note lists its connections with a notebook badge on foreign ones; *teleport ⇄* jumps across notebooks.
+- **LLMs weave too** — the MCP `link_notes` tool (with `target_notebook_id`) lets Claude connect related concepts across notebooks ("Calculus" ⇄ "Fizik/Hareket"), and the server instructions tell it to do so — your knowledge self-organizes into a brain.
 
 ---
 

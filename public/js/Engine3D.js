@@ -5,7 +5,7 @@
 import * as THREE from './three.js';
 import { JSM_BASE } from './three.js';
 import { SLOT_COUNT, SHRINK, SPHERE_K, PALETTE, hashStr, truncTitle } from './config.js';
-import { State, SLOT_DIRS, worldOf, address, filledSlots, nodeById, currentNb, inTreeOf } from './DataManager.js';
+import { State, SLOT_DIRS, worldOf, address, filledSlots, nodeById, currentNb, inTreeOf, resolveLink } from './DataManager.js';
 
 export let renderer, camera, scene, canvas;
 export const atomInst=[], slotInst=[];
@@ -13,12 +13,45 @@ export let onViewChanged=()=>{}; // UIManager bağlar
 export function setViewChanged(fn){ onViewChanged=fn; }
 
 let atomsMesh, slotsMesh, bondLines=null, grandPoints=null, linkLines=null;
+let selLine=null, selPathIdx=new Map(), lastSel=null, lastOpen=null;
 let attachGroup, labelPool=[];
-let composer=null, bloomPass=null, atomShader=null;
+let composer=null, bloomPass=null, atomShader=null, starMat=null;
+export let lightTheme=false;
+/* tema: sahne arka planı, sis, yıldızlar, etiketler, bloom eşiği tek yerden */
+export function applyTheme(light){
+    lightTheme=light;
+    const bg=light?0xeef1f7:0x020208;
+    scene.background=new THREE.Color(bg);
+    scene.fog.color.set(bg);
+    if(starMat) starMat.color.set(light?0xb9c2d4:0x2a3040);
+    if(bloomPass){ bloomPass.threshold=light?0.92:0.15; bloomPass.strength=light?0.3:0.85; }
+    refreshLabels();
+}
 const LABEL_CAP=60;
 const _m=new THREE.Matrix4(), _q=new THREE.Quaternion(), _s=new THREE.Vector3(), _proj=new THREE.Vector3();
 const _white=new THREE.Color(0xffffff), _green=new THREE.Color(0x2ed573),
       _dimCol=new THREE.Color(0x3a4152), _tmpCol=new THREE.Color();
+
+/* --------------------------------------------------------------- CULLING ---
+   Kare başına tek frustum + mesafe testi. Görüş konisi dışındaki (ya da çok
+   uzaktaki) etiket/ek sprite'ları .visible=false ile GPU'dan tamamen düşer
+   (her biri ayrı draw call) ve pahalı opaklık matematiği atlanır. Instanced
+   atom/yuva örnekleri zaten 2 draw call olduğundan onlar sürekli çizilir. */
+const _frustum=new THREE.Frustum(), _viewProj=new THREE.Matrix4(), _sph=new THREE.Sphere();
+export let culling=true, culledCount=0;
+export function setCulling(on){ culling=on; }
+export function toggleCulling(){ culling=!culling; return culling; }
+function updateFrustum(){
+    _viewProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    _frustum.setFromProjectionMatrix(_viewProj);
+}
+/* pos görünür mü? radius sprite yarıçapı (kenar sprite'ları erken kesilmesin) */
+function visibleAt(pos, radius, maxDist){
+    if(!culling) return true;
+    if(maxDist>0 && camera.position.distanceTo(pos)>maxDist) return false;
+    _sph.center.copy(pos); _sph.radius=radius;
+    return _frustum.intersectsSphere(_sph);
+}
 
 export function colorOf(n){ return new THREE.Color(PALETTE[hashStr(n.id)%PALETTE.length]); }
 
@@ -26,6 +59,7 @@ export function colorOf(n){ return new THREE.Color(PALETTE[hashStr(n.id)%PALETTE
 export function init(){
     scene=new THREE.Scene();
     scene.fog=new THREE.FogExp2(0x020208, 0.0028);
+    scene.background=new THREE.Color(0x020208);
     camera=new THREE.PerspectiveCamera(70, innerWidth/innerHeight, 0.01, 4000);
     renderer=new THREE.WebGLRenderer({antialias:true});
     renderer.setSize(innerWidth, innerHeight);
@@ -40,7 +74,8 @@ export function init(){
     for(let i=0;i<N;i++){ const r=600+rng()*1100, th=rng()*Math.PI*2, ph=Math.acos(2*rng()-1);
         pos.set([r*Math.sin(ph)*Math.cos(th), r*Math.cos(ph), r*Math.sin(ph)*Math.sin(th)], i*3); }
     const sg=new THREE.BufferGeometry(); sg.setAttribute('position', new THREE.BufferAttribute(pos,3));
-    scene.add(new THREE.Points(sg, new THREE.PointsMaterial({color:0x2a3040, size:1.6})));
+    starMat=new THREE.PointsMaterial({color:0x2a3040, size:1.6});
+    scene.add(new THREE.Points(sg, starMat));
 
     /* --- Geometry Batching: 2 InstancedMesh --- */
     const atomGeo=new THREE.SphereGeometry(1,24,24);
@@ -63,10 +98,34 @@ export function init(){
     }
 
     initPost(); // bloom (başarısız olursa sessizce düz render'a düşer)
+
+    /* --- EKRAN SENKRONİZASYONU ---
+       resize + orientationchange + visualViewport (mobil adres çubuğu) +
+       DPR değişimi (pencere kavisli/harici monitöre taşınınca) tek yerden */
     window.addEventListener('resize', onResize);
+    window.addEventListener('orientationchange', onResize);
+    if(window.visualViewport) visualViewport.addEventListener('resize', onResize);
+    (function watchDPR(){
+        matchMedia('(resolution: '+devicePixelRatio+'dppx)')
+            .addEventListener('change', ()=>{ onResize(); watchDPR(); }, {once:true});
+    })();
+    onResize(); // ilk FOV/DPR senkronu
+}
+/* Dikey FOV'u ekran şekliyle senkronla: ultrageniş/kavisli ekranda yatay görüş
+   105°'yi aşmasın (kenar bozulması), dikey telefonda 60°'nin altına inmesin
+   (görüş daralması). 16:9 ve karesel ekranlar 70° tabanında kalır. */
+function fovForAspect(aspect){
+    const BASE=70, H_MAX=105, H_MIN=60, half=x=>THREE.MathUtils.degToRad(x/2);
+    const hDeg=THREE.MathUtils.radToDeg(2*Math.atan(Math.tan(half(BASE))*aspect));
+    if(hDeg>H_MAX) return THREE.MathUtils.radToDeg(2*Math.atan(Math.tan(half(H_MAX))/aspect));
+    if(hDeg<H_MIN) return THREE.MathUtils.radToDeg(2*Math.atan(Math.tan(half(H_MIN))/aspect));
+    return BASE;
 }
 function onResize(){
-    camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix();
+    camera.aspect=innerWidth/innerHeight;
+    camera.fov=fovForAspect(camera.aspect);
+    camera.updateProjectionMatrix();
+    renderer.setPixelRatio(Math.min(devicePixelRatio,2)); // monitör geçişi: DPR tazele
     renderer.setSize(innerWidth, innerHeight);
     if(composer) composer.setSize(innerWidth, innerHeight);
 }
@@ -105,9 +164,10 @@ async function initPost(){
         composer=new EffectComposer(renderer);
         composer.addPass(new RenderPass(scene,camera));
         bloomPass=new UnrealBloomPass(new THREE.Vector2(innerWidth,innerHeight), 0.85, 0.55, 0.15);
+        if(lightTheme){ bloomPass.threshold=0.92; bloomPass.strength=0.3; } // tema bloom'dan önce seçildiyse
         composer.addPass(bloomPass);
         composer.setSize(innerWidth, innerHeight);
-    }catch(e){ console.warn('Bloom yüklenemedi, düz render:', e.message); composer=null; }
+    }catch(e){ console.warn('Bloom unavailable, plain render:', e.message); composer=null; }
 }
 
 /* ------------------------------------------------------------- görünüm kur */
@@ -115,8 +175,9 @@ export function buildView(node){
     State.openNode=node;
     const W=worldOf(node), R=W.radius, C=W.pos;
     atomInst.length=0; slotInst.length=0;
-    [bondLines, grandPoints, linkLines].forEach(o=>{ if(o){ scene.remove(o); o.geometry.dispose(); } });
-    bondLines=grandPoints=linkLines=null;
+    [bondLines, grandPoints, linkLines, selLine].forEach(o=>{ if(o){ scene.remove(o); o.geometry.dispose(); } });
+    bondLines=grandPoints=linkLines=selLine=null;
+    lastSel=lastOpen=null; selPathIdx.clear(); // seçim yolu yeni görünümde tazelenir
 
     atomInst.push({node, pos:C.clone(), r:R*SPHERE_K, color:new THREE.Color(0xff4757), kind:'open'});
 
@@ -168,8 +229,19 @@ export function buildView(node){
         n:node.slots[i], p:C.clone().addScaledVector(SLOT_DIRS[i],R), r:R*SHRINK*SPHERE_K }));
     linkSources.forEach(src=>{
         (src.n.links||[]).forEach(id=>{
-            const target=nodeById(id);
-            if(!target || target===src.n) return;
+            const RL=resolveLink(id);
+            if(!RL || RL.node===src.n) return;
+            const target=RL.node;
+            if(RL.nbIndex!==State.nbIndex){
+                /* defterler arası (Obsidian tarzı): hedef başka evrende —
+                   çizgi çizilmez, macenta portal defter geçişini temsil eder */
+                const ang=(hashStr(id)%628)/100;
+                const dir=new THREE.Vector3(Math.cos(ang),0.35,Math.sin(ang)).normalize();
+                atomInst.push({node:target, via:src.n, xnb:RL.nbIndex,
+                               pos:src.p.clone().addScaledVector(dir, src.r*3.2),
+                               r:src.r*0.55, color:new THREE.Color(0xff5fd0), kind:'portal'});
+                return;
+            }
             const TW=worldOf(target);
             wormPos.push(src.p.x,src.p.y,src.p.z, TW.pos.x,TW.pos.y,TW.pos.z);
             const dir=TW.pos.clone().sub(src.p).normalize();
@@ -212,10 +284,39 @@ export function buildView(node){
     onViewChanged();
 }
 
+/* ------------------------- SEÇİM YOLU: merkezden seçili noktaya renk -------
+   Bir atom seçildiğinde merkezden (açık küme) seçili düğüme uzanan zincir
+   renkli kalır ve renk dalgası merkezden dışa doğru akar; yol dışındaki
+   atomlar soluklaşır. Zincir boyunca gradyan bir çizgi de çizilir.        */
+function updateSelPath(){
+    lastSel=State.selNode; lastOpen=State.openNode;
+    selPathIdx.clear();
+    if(selLine){ scene.remove(selLine); selLine.geometry.dispose(); selLine.material.dispose(); selLine=null; }
+    const open=State.openNode, sel=State.selNode;
+    if(!open || !sel || sel===open || !inTreeOf(sel,open)) return;
+    const chain=[]; let n=sel;
+    while(n && n!==open){ chain.unshift(n); n=n.parent; }
+    chain.unshift(open);
+    chain.forEach((c,i)=>selPathIdx.set(c.id,i));
+    const pos=[], col=[], c0=new THREE.Color(0xff4757), c1=colorOf(sel);
+    chain.forEach((c,i)=>{
+        const W=worldOf(c);
+        pos.push(W.pos.x,W.pos.y,W.pos.z);
+        _tmpCol.copy(c0).lerp(c1, chain.length>1?i/(chain.length-1):1);
+        col.push(_tmpCol.r,_tmpCol.g,_tmpCol.b);
+    });
+    const g=new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos,3));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(col,3));
+    selLine=new THREE.Line(g, new THREE.LineBasicMaterial({vertexColors:true, transparent:true, opacity:0.95}));
+    scene.add(selLine);
+}
+
 /* ------------------------------------------------------- instance yazımı */
 export let hoverAtom=-1, hoverSlot=-1;
 export function setHover(a,s){ hoverAtom=a; hoverSlot=s; }
 export function writeInstances(t){
+    if(State.selNode!==lastSel || State.openNode!==lastOpen) updateSelPath();
     for(let i=0;i<atomInst.length;i++){
         const a=atomInst[i];
         let s=a.r;
@@ -225,10 +326,17 @@ export function writeInstances(t){
         if(a.node===State.selNode && a.kind==='child') s*=1.12;
         _s.set(s,s,s); _q.identity(); _m.compose(a.pos,_q,_s);
         atomsMesh.setMatrixAt(i,_m);
-        /* arama vurgusu: eşleşen atomlar parlak beyaza vurur */
+        /* renk önceliği: arama vurgusu > seçim yolu > normal */
         let col=a.color;
         if(State.searchHits.has(a.node.id) && a.kind!=='portal')
             col=_tmpCol.copy(a.color).lerp(_white, 0.55+0.4*Math.sin(t*5));
+        else if(selPathIdx.size && a.kind!=='portal'){
+            const idx=selPathIdx.get(a.node.id);
+            if(idx!=null) /* yolda: merkezden dışa akan parlaklık dalgası */
+                col=_tmpCol.copy(a.color).lerp(_white, 0.2+0.4*Math.max(0,Math.sin(t*3-idx*1.1)));
+            else /* yol dışı: soluklaş — seçili zincir öne çıksın */
+                col=_tmpCol.copy(a.color).lerp(_dimCol,0.6);
+        }
         else if(a.node===State.selNode && a.kind==='child')
             col=_tmpCol.copy(a.color).lerp(_white,0.45);
         atomsMesh.setColorAt(i,col);
@@ -252,25 +360,27 @@ export function writeInstances(t){
 function drawLabel(i,node,pos,r,isOpen){
     const L=labelPool[i], x=L.c.getContext('2d');
     x.clearRect(0,0,512,160);
-    x.textAlign='center'; x.shadowColor='#020208'; x.shadowBlur=9;
+    x.textAlign='center'; x.shadowColor=lightTheme?'#eef1f7':'#020208'; x.shadowBlur=9;
     const title=(node.title||'').trim(), addr=address(node);
+    const cTitle=lightTheme?(isOpen?'#b02a3a':'#1e2430'):(isOpen?'#ff8a95':'#e8edf2');
+    const cAddr=lightTheme?'#a86a00':'#ffa502';
     if(title){
-        x.font='bold 42px Courier New'; x.fillStyle=isOpen?'#ff8a95':'#e8edf2';
+        x.font='bold 42px Courier New'; x.fillStyle=cTitle;
         x.fillText(truncTitle(title,20),256,62);
-        x.font='28px Courier New'; x.fillStyle='#ffa502';
+        x.font='28px Courier New'; x.fillStyle=cAddr;
         x.fillText(addr,256,114);
     }else{
-        x.font='32px Courier New'; x.fillStyle='#ffa502';
+        x.font='32px Courier New'; x.fillStyle=cAddr;
         x.fillText(addr,256,92);
     }
     L.tex.needsUpdate=true;
     const w=r*9;
     L.spr.scale.set(w, w*160/512, 1);
     L.spr.position.set(pos.x, pos.y+r*2.1+w*0.13, pos.z);
-    L.spr.visible=true;
+    L.spr.visible=true; L.labelOn=true; // labelOn: slot etkin; visible ise render'da culling belirler
 }
 export function refreshLabels(){
-    labelPool.forEach(L=>L.spr.visible=false);
+    labelPool.forEach(L=>{ L.spr.visible=false; L.labelOn=false; });
     atomInst.forEach((a,i)=>{ if(i<LABEL_CAP && a.kind!=='portal') drawLabel(i,a.node,a.pos,a.r,a.kind==='open'); });
 }
 export function refreshLabelFor(node){
@@ -331,6 +441,8 @@ export function fadeAttachments(){
     const node=State.openNode; if(!node) return;
     const R=worldOf(node).radius;
     attachGroup.children.forEach(spr=>{
+        /* frustum culling: görüş dışı ek çizilmez, opaklık hesabı atlanır */
+        if(!visibleAt(spr.position, spr.scale.x, R*3.4)){ spr.visible=false; culledCount++; return; }
         const d=camera.position.distanceTo(spr.position);
         const o=THREE.MathUtils.clamp((R*3.2-d)/(R*1.6),0,1);
         spr.material.opacity=spr.material.map?o:0;
@@ -354,11 +466,15 @@ export function toScreen(pos){
 /* -------------------------------------------------------------- kare çizimi */
 export function render(t){
     if(!State.openNode) return;
+    updateFrustum(); culledCount=0;
     writeInstances(t);
     fadeAttachments();
     const RL=worldOf(State.openNode).radius;
     for(const L of labelPool){
-        if(!L.spr.visible) continue;
+        if(!L.labelOn) continue;              // bu slotta etiket yok (refreshLabels belirledi)
+        /* frustum + mesafe culling: görüş dışı etiket çizilmez */
+        if(!visibleAt(L.spr.position, L.spr.scale.x, RL*3.6)){ L.spr.visible=false; culledCount++; continue; }
+        L.spr.visible=true;
         const d=camera.position.distanceTo(L.spr.position);
         L.spr.material.opacity=THREE.MathUtils.clamp((RL*3.4-d)/(RL*1.2),0,1);
     }
@@ -366,6 +482,7 @@ export function render(t){
     if(composer) composer.render();
     else renderer.render(scene,camera);
 }
+export function drawCallsCulled(){ return culledCount; }
 export function drawCalls(){ return renderer.info.render.calls; }
 export function getMeshes(){ return { atomsMesh, slotsMesh }; }
 
