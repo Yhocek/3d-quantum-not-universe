@@ -64,7 +64,23 @@ node server.js
 
 Open **http://localhost:3000** — that's it. **Zero dependencies.**
 
-> 💡 Data is auto-saved to `./data/db.json`. The `public/index.html` also works standalone (open in browser) with JSON import/export only.
+> 💡 Data is auto-saved to `./data/db.json`. All asset paths are relative, so `public/` also runs as a pure static site (offline, IndexedDB) — see **Hosting** below.
+
+---
+
+## 🌐 Hosting — Static (GitHub Pages) vs. Full (Node)
+
+The frontend is location-independent (relative asset paths + `import.meta.url`), so it works both at a domain root and under a project subpath like `user.github.io/repo/`.
+
+| | **Static** (GitHub Pages, Netlify, any CDN) | **Full** (`node server.js` on a host) |
+|---|---|---|
+| 3D universe, notes, brain graph, 2D map, themes, JSON import/export | ✅ (offline, IndexedDB) | ✅ |
+| Accounts, server sync, sharing links, Time Tunnel versions | ❌ | ✅ |
+| MCP bridge (Claude), auto-categorization, trading tools | ❌ | ✅ |
+
+**GitHub Pages:** the included workflow (`.github/workflows/pages.yml`) deploys `public/` automatically. One-time: repo **Settings → Pages → Source: "GitHub Actions"**, then push. The app opens in offline local mode — no backend needed.
+
+**Full features:** run `node server.js` on any host that runs Node (a small VPS, Render, Railway, Fly.io…) and point the MCP bridge / browser at it. Accounts, sync, sharing and the Claude/trading tools all need this backend.
 
 ---
 
@@ -153,7 +169,9 @@ GET    /api/health                                    → { ok, name, auth }
 ```
 ├── server.js              # Zero-dependency Node.js backend + static file server
 ├── mcp-server.js          # MCP bridge (stdio) — lets Claude read & write your notes
-├── strategy-watch.js      # Sleeping-analyst watcher — evaluates strategy on a timer
+├── strategy-watch.js      # Sleeping-analyst watcher (journal + optional live webhook)
+├── .github/workflows/
+│   └── pages.yml          # Auto-deploy public/ to GitHub Pages (offline static build)
 ├── .mcp.json              # Auto-discovered MCP config for Claude Code
 ├── verify.mjs             # Cross-module import/export + HTML ID consistency checker
 ├── package.json
@@ -343,6 +361,16 @@ node strategy-watch.js
 ```
 
 Every `WATCH_INTERVAL` seconds it evaluates each symbol and logs a recommendation to `Trade Journal/<SYMBOL>` — but **edge-triggered**: only when a branch *newly* fires (it won't re-journal the same fired branch until it stops firing and fires again), so no spam. Metrics understood: `price`, `change 5m/1h/6h/24h`, `volume 24h`, `liquidity`, `buys/sells 24h`, and `predicted change` (QGPR, when `WATCH_HORIZON` is set to 10-60). Unparsable conditions never fire (fail-safe). It places no orders — you still execute manually.
+
+**Live mode (bring your own execution endpoint).** Set `WATCH_LIVE=1` and the watcher additionally POSTs each fired decision to **your own** HTTPS webhook (`WATCH_WEBHOOK`) — which holds your broker/exchange keys and decides what to actually do. This project ships **no credentials and integrates no exchange directly**; execution lives entirely on your endpoint.
+
+```bash
+WATCH_LIVE=1 WATCH_WEBHOOK=https://your-host/exec WATCH_CONFIRM=I-UNDERSTAND \
+WATCH_MAX_USD=25 WATCH_ACTIONS=buy,sell,reduce WATCH_SECRET=... \
+node strategy-watch.js
+```
+
+Guardrails: live is **dry-run** (logs "would POST", sends nothing) unless you also set `WATCH_CONFIRM=I-UNDERSTAND` *and* an `https://` webhook; each dispatch is capped to `WATCH_MAX_USD`; only `WATCH_ACTIONS` are sent; an optional `WATCH_SECRET` bearer token authenticates to your endpoint; the payload carries a `dryRun` flag your endpoint should honor. Autonomous trading is risky and entirely your responsibility — **not financial advice.**
 
 > ⚠️ **Recommendations only.** This bridge never places orders and holds no exchange or brokerage credentials — TradingView and Robinhood offer no official public trading APIs, and unofficial ones risk your account. You review each journal entry and execute manually on your platform. Nothing here is financial advice; strategies fire exactly as *you* wrote them.
 

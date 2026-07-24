@@ -14,10 +14,26 @@
      WATCH_SYMBOLS="SOL/USDC,ETH/USDC" WATCH_INTERVAL=60 WATCH_HORIZON=30 \
      node strategy-watch.js
 
+   Two modes:
+     • JOURNAL (default) — logs a recommendation to Trade Journal, no execution.
+     • LIVE (WATCH_LIVE=1) — additionally POSTs the decision to YOUR OWN
+       execution webhook (WATCH_WEBHOOK), which holds your broker/exchange keys
+       and decides what to do. This bridge ships NO credentials and integrates
+       NO exchange directly — execution stays entirely on your endpoint. Live is
+       dry-run unless you also set WATCH_CONFIRM=I-UNDERSTAND, is capped per
+       trade, and only dispatches actions you allow. Autonomous trading is risky
+       and entirely your responsibility; nothing here is financial advice.
+
    Env:
      WATCH_SYMBOLS   comma-separated symbols/pairs         (default "SOL/USDC")
      WATCH_INTERVAL  seconds between sweeps, min 15         (default 60)
      WATCH_HORIZON   QGPR horizon 10-60s, empty = disabled  (default "")
+     WATCH_LIVE      "1" to enable webhook dispatch          (default off)
+     WATCH_WEBHOOK   your execution endpoint URL (https)     (required if LIVE)
+     WATCH_CONFIRM   must equal "I-UNDERSTAND" to arm live    (else dry-run)
+     WATCH_MAX_USD   per-trade notional cap in USD           (default 25)
+     WATCH_ACTIONS   actions that dispatch live               (default buy,sell,reduce)
+     WATCH_SECRET    optional bearer token sent to webhook
      NOTE_BASE_URL / NOTE_USER / NOTE_PASS / NOTE_REGISTER / DEX_API_BASE
    ============================================================================= */
 'use strict';
@@ -27,6 +43,14 @@ const path = require('path');
 const SYMBOLS = (process.env.WATCH_SYMBOLS || 'SOL/USDC').split(',').map(s => s.trim()).filter(Boolean);
 const INTERVAL = Math.max(+process.env.WATCH_INTERVAL || 60, 15) * 1000;
 const HORIZON = process.env.WATCH_HORIZON ? +process.env.WATCH_HORIZON : null;
+
+/* ---- live-trade dispatch (bring your own execution endpoint) ---- */
+const LIVE = process.env.WATCH_LIVE === '1';
+const WEBHOOK = process.env.WATCH_WEBHOOK || '';
+const ARMED = LIVE && process.env.WATCH_CONFIRM === 'I-UNDERSTAND' && /^https:\/\//i.test(WEBHOOK);
+const MAX_USD = Math.max(+process.env.WATCH_MAX_USD || 25, 0);
+const LIVE_ACTIONS = new Set((process.env.WATCH_ACTIONS || 'buy,sell,reduce').split(',').map(s => s.trim().toLowerCase()));
+const SECRET = process.env.WATCH_SECRET || '';
 
 /* ---- MCP stdio client (line-delimited JSON-RPC) ---- */
 const srv = spawn('node', [path.join(__dirname, 'mcp-server.js')], {
@@ -93,10 +117,37 @@ async function sweep() {
                 });
                 logged++;
                 log('🔔', symbol, '→', f.route, '::', action, '· journal', out.address);
+                if (LIVE) await dispatchLive(symbol, action, f, res);   // canlı: kendi endpoint'ine gönder
             } catch (e) { log('⚠️ log', symbol, e.message); }
         }
         if (!logged) log('·', symbol, fired.length ? '(no new leaf fired)' : '(nothing fired)');
     }
+}
+/* LIVE modu: kararı kullanıcının KENDİ execution endpoint'ine POST'lar.
+   Bu köprü hiçbir borsaya bağlanmaz, kimlik bilgisi taşımaz — endpoint
+   kullanıcıya aittir ve gerçek emri o verir. Silahlanmadıysa dry-run. */
+async function dispatchLive(symbol, action, f, res) {
+    if (!LIVE_ACTIONS.has(action)) { log('   ↳ live skip (action not allowed):', action); return; }
+    const payload = {
+        source: '3d-quantum-note-universe/strategy-watch',
+        ts: new Date().toISOString(),
+        symbol, action,
+        sizeUsd: MAX_USD,                 // endpoint bunu üst sınır sayar
+        route: f.route,
+        reasoning: f.title + ' — ' + f.matched.join('; '),
+        prescribes: f.actions,
+        market: res.market,
+        prediction: res.prediction || null,
+        dryRun: !ARMED,                   // ARMED değilse endpoint uygulamamalı
+        disclaimer: 'recommendation from user strategy; execution is the endpoint owner\'s responsibility'
+    };
+    if (!ARMED) { log('   ↳ live DRY-RUN (not armed): would POST', action, '$' + MAX_USD, symbol); return; }
+    try {
+        const headers = { 'Content-Type': 'application/json' };
+        if (SECRET) headers['Authorization'] = 'Bearer ' + SECRET;
+        const r = await fetch(WEBHOOK, { method: 'POST', headers, body: JSON.stringify(payload) });
+        log('   ↳ 🟢 LIVE POST', action, '$' + MAX_USD, symbol, '→', r.status, r.ok ? 'ok' : 'FAILED');
+    } catch (e) { log('   ↳ ⚠️ live POST error:', e.message); }
 }
 /* eylem metninden öneri fiili çıkar (buy/sell/hold/watch/reduce) */
 function deriveAction(actions) {
@@ -118,6 +169,10 @@ function marketSnap(M, P) {
     await rpc('initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'strategy-watch', version: '1.0.0' } });
     log('👁  Sleeping analyst watching', SYMBOLS.join(', '),
         '· every', INTERVAL / 1000 + 's', HORIZON != null ? '· QGPR ' + HORIZON + 's' : '· no forecast');
+    if (!LIVE) log('   mode: JOURNAL only (no execution)');
+    else if (!ARMED) log('   mode: LIVE DRY-RUN — set WATCH_CONFIRM=I-UNDERSTAND + https WATCH_WEBHOOK to arm; nothing is sent');
+    else log('   mode: 🟢 LIVE ARMED → ' + WEBHOOK + ' · cap $' + MAX_USD + '/trade · actions [' +
+        [...LIVE_ACTIONS].join(',') + '] · YOUR endpoint executes, YOUR responsibility');
     await sweep();
     setInterval(sweep, INTERVAL);
 })().catch(e => { console.error('fatal:', e.message); process.exit(1); });

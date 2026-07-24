@@ -205,11 +205,15 @@ export async function resolveAsset(id){
 
 /* =============================================================================
    API İSTEMCİSİ + OTOMATİK KAYIT
+   API tabanı dokümana göre çözülür: kökten sunulduğunda (node server.js) →
+   "/api/", alt-dizinden (GitHub Pages user.github.io/repo/) → "/repo/api/"
+   (backend yoksa 404 → sorunsuz çevrimdışı moda düşer). Konumdan bağımsız.
    ============================================================================= */
+export const API_BASE = new URL('api/', document.baseURI).href;
 export async function api(path, opts={}){
     const headers=Object.assign({'Content-Type':'application/json'}, opts.headers||{});
     if(csrfToken && opts.method && opts.method!=='GET') headers['X-CSRF']=csrfToken;
-    const r=await fetch('/api/'+path, Object.assign({}, opts, {headers, credentials:'same-origin'}));
+    const r=await fetch(API_BASE+path, Object.assign({}, opts, {headers, credentials:'same-origin'}));
     if(r.status===401 && !path.startsWith('auth/')) onAuthNeeded();
     if(!r.ok){
         let msg='api '+r.status;
@@ -224,8 +228,10 @@ export function setAuthNeeded(fn){ onAuthNeeded=fn; }
 export async function probe(){
     try{
         const c=new AbortController(); setTimeout(()=>c.abort(),2000);
-        const r=await fetch('/api/health',{signal:c.signal});
-        State.serverOn=r.ok;
+        const r=await fetch(API_BASE+'health',{signal:c.signal});
+        /* statik host (Pages) /api/health için HTML 404 döndürebilir; JSON
+           değilse backend yok say → çevrimdışı yerel mod */
+        State.serverOn = r.ok && (r.headers.get('content-type')||'').includes('json');
     }catch(e){ State.serverOn=false; }
     if(State.serverOn){
         try{ const me=await api('auth/me'); State.user=me.user; csrfToken=me.csrf; }

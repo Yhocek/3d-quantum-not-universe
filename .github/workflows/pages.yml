@@ -1,0 +1,41 @@
+name: Deploy static site to GitHub Pages
+
+# Publishes the fully static `public/` folder to GitHub Pages. The app runs in
+# OFFLINE local mode there (IndexedDB) — the 3D universe, notes, brain graph,
+# 2D map, themes and import/export all work. Accounts, sync, sharing, the MCP
+# bridge and the trading tools need the Node backend (`node server.js`) on a
+# real host and are intentionally not part of the static deploy.
+#
+# One-time setup: repo Settings → Pages → Build and deployment → Source:
+# "GitHub Actions". Then every push below redeploys automatically.
+
+on:
+  push:
+    branches: [main, claude/continue-ljosqk]
+    paths: ['public/**', '.github/workflows/pages.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never cancel an in-flight deploy; queue instead.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+      - id: deployment
+        uses: actions/deploy-pages@v4
